@@ -1,0 +1,24 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build output
+vizzel-backend
+vizzel-backend.exe
+/bin/
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
