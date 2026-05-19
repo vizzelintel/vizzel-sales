@@ -16,6 +16,20 @@ var validStatuses = map[string]bool{
 	"prospect": true, "trial": true, "negotiation": true, "won": true, "lost": true,
 }
 
+const projectCols = `id, COALESCE(company_id::text,''), agency_name,
+	COALESCE(region,''), COALESCE(contact_person,''), COALESCE(contact_phone,''),
+	COALESCE(status,'prospect'), COALESCE(created_by::text,''), created_at`
+
+func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
+	var p models.Project
+	err := row.Scan(
+		&p.ID, &p.CompanyID, &p.AgencyName,
+		&p.Region, &p.ContactPerson, &p.ContactPhone,
+		&p.Status, &p.CreatedBy, &p.CreatedAt,
+	)
+	return p, err
+}
+
 func CreateProject(c *gin.Context) {
 	var req models.CreateProjectRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -23,36 +37,31 @@ func CreateProject(c *gin.Context) {
 		return
 	}
 
-	lineUserID := c.GetString("line_id")
-
 	status := req.Status
 	if status == "" || !validStatuses[status] {
 		status = "prospect"
 	}
 
-	now := time.Now().UTC()
-	project := models.Project{
-		CompanyID:     req.CompanyID,
-		AgencyName:    req.AgencyName,
-		Region:        req.Region,
-		ContactPerson: req.ContactPerson,
-		ContactPhone:  req.ContactPhone,
-		Status:        status,
-		CreatedBy:     lineUserID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
+	// user_id is the DB UUID set by JWTAuth middleware from the "uid" JWT claim.
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
 
+	now := time.Now().UTC()
+
+	var project models.Project
 	err := config.DB.QueryRow(context.Background(),
-		`INSERT INTO projects (company_id, agency_name, region, contact_person, contact_phone, status, created_by, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING id`,
-		project.CompanyID, project.AgencyName, project.Region,
-		project.ContactPerson, project.ContactPhone, project.Status,
-		project.CreatedBy, project.CreatedAt, project.UpdatedAt,
-	).Scan(&project.ID)
+		`INSERT INTO projects (agency_name, region, contact_person, contact_phone, status, company_id, created_by, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6,'')::uuid, NULLIF($7,'')::uuid, $8)
+		 RETURNING `+projectCols,
+		req.AgencyName, req.Region, req.ContactPerson, req.ContactPhone,
+		status, req.CompanyID, userIDStr, now,
+	).Scan(
+		&project.ID, &project.CompanyID, &project.AgencyName,
+		&project.Region, &project.ContactPerson, &project.ContactPhone,
+		&project.Status, &project.CreatedBy, &project.CreatedAt,
+	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
 		return
 	}
 
@@ -67,13 +76,12 @@ func GetProjects(c *gin.Context) {
 		args  []any
 	)
 
+	base := `SELECT ` + projectCols + ` FROM projects`
 	if companyID != "" {
-		query = `SELECT id, company_id, agency_name, region, contact_person, contact_phone, status, created_by, created_at, updated_at
-		          FROM projects WHERE company_id = $1 ORDER BY created_at DESC`
+		query = base + ` WHERE company_id = $1::uuid ORDER BY created_at DESC`
 		args = []any{companyID}
 	} else {
-		query = `SELECT id, company_id, agency_name, region, contact_person, contact_phone, status, created_by, created_at, updated_at
-		          FROM projects ORDER BY created_at DESC`
+		query = base + ` ORDER BY created_at DESC`
 	}
 
 	rows, err := config.DB.Query(context.Background(), query, args...)
@@ -85,12 +93,8 @@ func GetProjects(c *gin.Context) {
 
 	projects := make([]models.Project, 0)
 	for rows.Next() {
-		var p models.Project
-		if err := rows.Scan(
-			&p.ID, &p.CompanyID, &p.AgencyName, &p.Region,
-			&p.ContactPerson, &p.ContactPhone, &p.Status,
-			&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
+		p, err := scanProject(rows)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse projects"})
 			return
 		}
@@ -103,15 +107,9 @@ func GetProjects(c *gin.Context) {
 func GetProject(c *gin.Context) {
 	id := c.Param("id")
 
-	var p models.Project
-	err := config.DB.QueryRow(context.Background(),
-		`SELECT id, company_id, agency_name, region, contact_person, contact_phone, status, created_by, created_at, updated_at
-		 FROM projects WHERE id = $1`, id,
-	).Scan(
-		&p.ID, &p.CompanyID, &p.AgencyName, &p.Region,
-		&p.ContactPerson, &p.ContactPhone, &p.Status,
-		&p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
-	)
+	p, err := scanProject(config.DB.QueryRow(context.Background(),
+		`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id,
+	))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
@@ -138,10 +136,9 @@ func UpdateProjectStatus(c *gin.Context) {
 		return
 	}
 
-	now := time.Now().UTC()
 	tag, err := config.DB.Exec(context.Background(),
-		`UPDATE projects SET status = $1, updated_at = $2 WHERE id = $3`,
-		req.Status, now, id,
+		`UPDATE projects SET status = $1 WHERE id = $2::uuid`,
+		req.Status, id,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
@@ -152,5 +149,5 @@ func UpdateProjectStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"id": id, "status": req.Status, "updated_at": now})
+	c.JSON(http.StatusOK, gin.H{"id": id, "status": req.Status})
 }
