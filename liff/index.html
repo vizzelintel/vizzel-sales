@@ -1,0 +1,111 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Vizzel Sales</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; color: #333; }
+    .header { background: #06C755; color: white; padding: 16px 20px; display: flex; align-items: center; gap: 12px; }
+    .header img { width: 36px; height: 36px; border-radius: 50%; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .content { padding: 20px; }
+    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .card h2 { font-size: 15px; color: #666; margin-bottom: 12px; }
+    .btn { display: block; width: 100%; padding: 14px; background: #06C755; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: center; margin-top: 8px; }
+    .btn-outline { background: white; color: #06C755; border: 2px solid #06C755; }
+    .project-item { padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
+    .project-item:last-child { border-bottom: none; }
+    .project-item .name { font-weight: 600; font-size: 15px; }
+    .project-item .sub { font-size: 13px; color: #999; margin-top: 4px; }
+    .loading { text-align: center; padding: 40px; color: #999; }
+    #loginScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 20px; text-align: center; }
+    #loginScreen .logo { font-size: 48px; margin-bottom: 16px; }
+    #loginScreen h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    #loginScreen p { color: #666; margin-bottom: 32px; }
+    #app { display: none; }
+  </style>
+</head>
+<body>
+<div id="loginScreen">
+  <div class="logo">📊</div>
+  <h2>Vizzel Sales</h2>
+  <p>ระบบจัดการลูกค้าหน่วยงานราชการ</p>
+  <button class="btn" onclick="doLogin()">เข้าสู่ระบบด้วย LINE</button>
+</div>
+<div id="app">
+  <div class="header">
+    <img id="userPic" src="" alt="">
+    <div>
+      <h1>สวัสดี, <span id="userName"></span></h1>
+      <div style="font-size:12px;opacity:0.85">Vizzel Sales Dashboard</div>
+    </div>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>📋 โครงการล่าสุด</h2>
+      <div id="projectList"><div class="loading">กำลังโหลด...</div></div>
+      <button class="btn btn-outline" style="margin-top:12px" onclick="alert('กำลังพัฒนา')">+ เพิ่มโครงการใหม่</button>
+    </div>
+  </div>
+</div>
+<script>
+const LIFF_ID = "YOUR_LIFF_ID_HERE";
+const API = "https://vizzel-sales-production.up.railway.app";
+let token = "";
+
+async function init() {
+  await liff.init({ liffId: LIFF_ID });
+  if (!liff.isLoggedIn()) {
+    document.getElementById("loginScreen").style.display = "flex";
+    return;
+  }
+  await loginWithLine();
+}
+
+function doLogin() { liff.login(); }
+
+async function loginWithLine() {
+  try {
+    const accessToken = liff.getAccessToken();
+    const profile = await liff.getProfile();
+    document.getElementById("userName").textContent = profile.displayName;
+    document.getElementById("userPic").src = profile.pictureUrl;
+    const res = await fetch(API + "/api/v1/auth/line", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: accessToken })
+    });
+    const data = await res.json();
+    token = data.token;
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    loadProjects();
+  } catch(e) { alert("Login failed: " + e.message); }
+}
+
+async function loadProjects() {
+  try {
+    const res = await fetch(API + "/api/v1/projects", {
+      headers: { "Authorization": "Bearer " + token }
+    });
+    const projects = await res.json();
+    const list = document.getElementById("projectList");
+    if (!projects || projects.length === 0) {
+      list.innerHTML = '<div class="loading">ยังไม่มีโครงการ</div>';
+      return;
+    }
+    list.innerHTML = projects.map(p => `
+      <div class="project-item">
+        <div class="name">${p.agency_name || '-'}</div>
+        <div class="sub">${p.region || ''} · ${p.status || 'pending'}</div>
+      </div>`).join("");
+  } catch(e) { document.getElementById("projectList").innerHTML = '<div class="loading">โหลดไม่สำเร็จ</div>'; }
+}
+
+init();
+</script>
+</body>
+</html>
