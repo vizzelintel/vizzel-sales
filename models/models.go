@@ -24,14 +24,16 @@ type User struct {
 }
 
 type Project struct {
-	ID          string    `json:"id" db:"id"`
-	CompanyID   string    `json:"company_id" db:"company_id"`
-	Name        string    `json:"name" db:"name"`
-	Description string    `json:"description,omitempty" db:"description"`
-	Status      string    `json:"status" db:"status"`
-	CreatedBy   string    `json:"created_by" db:"created_by"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID            string    `json:"id" db:"id"`
+	CompanyID     string    `json:"company_id,omitempty" db:"company_id"`
+	AgencyName    string    `json:"agency_name" db:"agency_name"`
+	Region        string    `json:"region,omitempty" db:"region"`
+	ContactPerson string    `json:"contact_person,omitempty" db:"contact_person"`
+	ContactPhone  string    `json:"contact_phone,omitempty" db:"contact_phone"`
+	Status        string    `json:"status" db:"status"`
+	CreatedBy     string    `json:"created_by" db:"created_by"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type Document struct {
@@ -47,9 +49,21 @@ type Document struct {
 }
 
 type CreateProjectRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	CompanyID   string `json:"company_id" binding:"required"`
+	AgencyName    string `json:"agency_name" binding:"required"`
+	Region        string `json:"region"`
+	ContactPerson string `json:"contact_person"`
+	ContactPhone  string `json:"contact_phone"`
+	Status        string `json:"status"`
+	CompanyID     string `json:"company_id"`
+}
+
+type UpdateProjectStatusRequest struct {
+	Status string `json:"status" binding:"required"`
+}
+
+type CreateCompanyRequest struct {
+	Name   string `json:"name" binding:"required"`
+	Domain string `json:"domain"`
 }
 
 type CreateDocumentRequest struct {

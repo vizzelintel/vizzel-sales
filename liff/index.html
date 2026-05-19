@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -7,102 +7,454 @@
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #f5f5f5; color: #333; }
-    .header { background: #06C755; color: white; padding: 16px 20px; display: flex; align-items: center; gap: 12px; }
-    .header img { width: 36px; height: 36px; border-radius: 50%; }
-    .header h1 { font-size: 18px; font-weight: 600; }
-    .content { padding: 20px; }
-    .card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-    .card h2 { font-size: 15px; color: #666; margin-bottom: 12px; }
-    .btn { display: block; width: 100%; padding: 14px; background: #06C755; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: center; margin-top: 8px; }
-    .btn-outline { background: white; color: #06C755; border: 2px solid #06C755; }
-    .project-item { padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
-    .project-item:last-child { border-bottom: none; }
-    .project-item .name { font-weight: 600; font-size: 15px; }
-    .project-item .sub { font-size: 13px; color: #999; margin-top: 4px; }
-    .loading { text-align: center; padding: 40px; color: #999; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f2f2f7; color: #1c1c1e; -webkit-tap-highlight-color: transparent; }
+
+    /* ── Login ── */
     #loginScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 20px; text-align: center; }
-    #loginScreen .logo { font-size: 48px; margin-bottom: 16px; }
-    #loginScreen h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-    #loginScreen p { color: #666; margin-bottom: 32px; }
-    #app { display: none; }
+    .logo-icon { font-size: 64px; margin-bottom: 20px; }
+    .login-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+    .login-sub { color: #8e8e93; margin-bottom: 40px; font-size: 15px; line-height: 1.5; }
+
+    /* ── App Shell ── */
+    #app { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background: #06C755; color: white; padding: 12px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .header img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: rgba(255,255,255,0.3); }
+    .header-info h1 { font-size: 16px; font-weight: 600; line-height: 1.2; }
+    .header-info p { font-size: 11px; opacity: 0.85; margin-top: 1px; }
+
+    /* ── Tabs ── */
+    .tabs { background: white; display: flex; border-bottom: 1px solid #e5e5ea; flex-shrink: 0; }
+    .tab { flex: 1; padding: 10px 4px; text-align: center; font-size: 12px; color: #8e8e93; border: none; background: none; cursor: pointer; font-weight: 500; position: relative; transition: color 0.15s; }
+    .tab.active { color: #06C755; font-weight: 600; }
+    .tab.active::after { content: ''; position: absolute; bottom: 0; left: 15%; right: 15%; height: 2px; background: #06C755; border-radius: 2px 2px 0 0; }
+
+    /* ── Content ── */
+    .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── Pipeline Cards ── */
+    .pipeline-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .pipeline-card { background: white; border-radius: 12px; padding: 14px 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-top: 4px solid; cursor: pointer; transition: transform 0.12s; }
+    .pipeline-card:active { transform: scale(0.97); }
+    .pipeline-card .count { font-size: 30px; font-weight: 700; line-height: 1; }
+    .pipeline-card .label { font-size: 12px; color: #8e8e93; margin-top: 5px; }
+    .pc-prospect  { border-color: #007AFF; } .pc-prospect  .count { color: #007AFF; }
+    .pc-trial     { border-color: #FF9500; } .pc-trial     .count { color: #FF9500; }
+    .pc-negotiation { border-color: #AF52DE; } .pc-negotiation .count { color: #AF52DE; }
+    .pc-won       { border-color: #34C759; } .pc-won       .count { color: #34C759; }
+    .pc-lost      { border-color: #FF3B30; } .pc-lost      .count { color: #FF3B30; }
+
+    /* ── Section title ── */
+    .sec-title { font-size: 12px; font-weight: 600; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+
+    /* ── Project List ── */
+    .proj-list { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+    .proj-row { padding: 13px 16px; border-bottom: 1px solid #f2f2f7; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.12s; }
+    .proj-row:last-child { border-bottom: none; }
+    .proj-row:active { background: #f5f5f5; }
+    .proj-row-info { flex: 1; min-width: 0; }
+    .proj-name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .proj-sub { font-size: 12px; color: #8e8e93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chevron { color: #c7c7cc; font-size: 16px; flex-shrink: 0; }
+
+    /* ── Badges ── */
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+    .b-prospect    { background: #e3f0ff; color: #007AFF; }
+    .b-trial       { background: #fff3e0; color: #FF9500; }
+    .b-negotiation { background: #f3e8ff; color: #AF52DE; }
+    .b-won         { background: #e8f9ed; color: #34C759; }
+    .b-lost        { background: #ffe8e8; color: #FF3B30; }
+
+    /* ── Form ── */
+    .form-card { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+    .form-row { display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid #f2f2f7; }
+    .form-row:last-child { border-bottom: none; }
+    .form-label { font-size: 13px; color: #8e8e93; width: 88px; flex-shrink: 0; padding: 14px 0; }
+    .form-input { flex: 1; border: none; outline: none; font-size: 15px; padding: 14px 0 14px 8px; color: #1c1c1e; background: transparent; width: 100%; font-family: inherit; }
+    .form-input::placeholder { color: #c7c7cc; }
+    select.form-input { appearance: none; -webkit-appearance: none; }
+
+    /* ── Buttons ── */
+    .btn { display: block; width: 100%; padding: 15px; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: opacity 0.15s; }
+    .btn:active { opacity: 0.8; }
+    .btn-green { background: #06C755; color: white; }
+    .btn-outline { background: white; color: #06C755; border: 2px solid #06C755; }
+
+    /* ── Detail ── */
+    .detail-card { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+    .detail-row { display: flex; padding: 13px 16px; border-bottom: 1px solid #f2f2f7; align-items: flex-start; }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key { font-size: 13px; color: #8e8e93; width: 100px; flex-shrink: 0; padding-top: 1px; }
+    .detail-val { flex: 1; font-size: 15px; word-break: break-word; }
+    .detail-val a { color: #007AFF; text-decoration: none; }
+
+    /* ── Status picker ── */
+    .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .s-btn { padding: 10px 2px; border-radius: 8px; border: 2px solid; background: white; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: all 0.15s; }
+    .s-prospect { border-color:#007AFF; color:#007AFF; } .s-prospect.on  { background:#007AFF; color:white; }
+    .s-trial     { border-color:#FF9500; color:#FF9500; } .s-trial.on     { background:#FF9500; color:white; }
+    .s-negotiation { border-color:#AF52DE; color:#AF52DE; } .s-negotiation.on { background:#AF52DE; color:white; }
+    .s-won       { border-color:#34C759; color:#34C759; } .s-won.on       { background:#34C759; color:white; }
+    .s-lost      { border-color:#FF3B30; color:#FF3B30; } .s-lost.on      { background:#FF3B30; color:white; }
+
+    /* ── Back btn ── */
+    .back-btn { display: inline-flex; align-items: center; gap: 5px; color: #06C755; background: none; border: none; font-size: 15px; cursor: pointer; padding: 0; margin-bottom: 14px; font-weight: 500; font-family: inherit; }
+
+    /* ── Loading / Empty ── */
+    .spinner-wrap { display: flex; justify-content: center; padding: 44px 0; }
+    .spinner { width: 30px; height: 30px; border: 3px solid #e5e5ea; border-top-color: #06C755; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { text-align: center; padding: 40px 20px; color: #8e8e93; }
+    .empty-icon { font-size: 38px; margin-bottom: 10px; }
+    .empty-text { font-size: 14px; }
+
+    /* ── Toast ── */
+    .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: rgba(28,28,30,0.92); color: white; padding: 11px 20px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 999; white-space: nowrap; }
+    .toast.show { opacity: 1; }
   </style>
 </head>
 <body>
+
+<!-- ── Login ── -->
 <div id="loginScreen">
-  <div class="logo">📊</div>
-  <h2>Vizzel Sales</h2>
-  <p>ระบบจัดการลูกค้าหน่วยงานราชการ</p>
-  <button class="btn" onclick="doLogin()">เข้าสู่ระบบด้วย LINE</button>
+  <div class="logo-icon">📊</div>
+  <h2 class="login-title">Vizzel Sales</h2>
+  <p class="login-sub">ระบบจัดการลูกค้า<br>หน่วยงานราชการ</p>
+  <button class="btn btn-green" style="max-width:280px" onclick="doLogin()">เข้าสู่ระบบด้วย LINE</button>
 </div>
+
+<!-- ── App ── -->
 <div id="app">
   <div class="header">
     <img id="userPic" src="" alt="">
-    <div>
-      <h1>สวัสดี, <span id="userName"></span></h1>
-      <div style="font-size:12px;opacity:0.85">Vizzel Sales Dashboard</div>
+    <div class="header-info">
+      <h1>สวัสดี, <span id="userName">...</span></h1>
+      <p>Vizzel Sales CRM</p>
     </div>
   </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="pipeline" onclick="showTab('pipeline')">📊 Pipeline</button>
+    <button class="tab"        data-tab="projects" onclick="showTab('projects')">📋 โครงการ</button>
+    <button class="tab"        data-tab="create"   onclick="showTab('create')">➕ สร้าง</button>
+  </div>
+
   <div class="content">
-    <div class="card">
-      <h2>📋 โครงการล่าสุด</h2>
-      <div id="projectList"><div class="loading">กำลังโหลด...</div></div>
-      <button class="btn btn-outline" style="margin-top:12px" onclick="alert('กำลังพัฒนา')">+ เพิ่มโครงการใหม่</button>
+
+    <!-- Pipeline -->
+    <div class="screen active" id="screen-pipeline">
+      <div class="pipeline-grid" id="pipelineGrid">
+        <div class="spinner-wrap" style="grid-column:1/-1"><div class="spinner"></div></div>
+      </div>
+      <div class="sec-title">โครงการล่าสุด</div>
+      <div class="proj-list" id="pipelineRecent">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
     </div>
-  </div>
-</div>
+
+    <!-- Projects list -->
+    <div class="screen" id="screen-projects">
+      <div class="proj-list" id="projectsEl">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Create form -->
+    <div class="screen" id="screen-create">
+      <div class="sec-title" style="margin-bottom:12px">ข้อมูลโครงการใหม่</div>
+      <div class="form-card">
+        <div class="form-row">
+          <label class="form-label">หน่วยงาน *</label>
+          <input class="form-input" id="f-agency" placeholder="ชื่อหน่วยงาน/องค์กร">
+        </div>
+        <div class="form-row">
+          <label class="form-label">จังหวัด</label>
+          <input class="form-input" id="f-region" placeholder="จังหวัด / ภูมิภาค">
+        </div>
+        <div class="form-row">
+          <label class="form-label">ผู้ติดต่อ</label>
+          <input class="form-input" id="f-contact" placeholder="ชื่อผู้ติดต่อ">
+        </div>
+        <div class="form-row">
+          <label class="form-label">โทรศัพท์</label>
+          <input class="form-input" id="f-phone" type="tel" placeholder="เบอร์โทรศัพท์">
+        </div>
+        <div class="form-row">
+          <label class="form-label">สถานะ</label>
+          <select class="form-input" id="f-status">
+            <option value="prospect">โอกาส (Prospect)</option>
+            <option value="trial">ทดลอง (Trial)</option>
+            <option value="negotiation">เจรจา (Negotiation)</option>
+            <option value="won">ชนะ (Won)</option>
+            <option value="lost">แพ้ (Lost)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-green" onclick="submitCreate()">สร้างโครงการ</button>
+    </div>
+
+    <!-- Detail -->
+    <div class="screen" id="screen-detail">
+      <button class="back-btn" onclick="goBack()">‹ กลับ</button>
+      <div id="detailContent"></div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /app -->
+
+<div class="toast" id="toast"></div>
+
 <script>
 const LIFF_ID = "2010133685-tke1EWht";
-const API = "https://vizzel-sales-production.up.railway.app";
-let token = "";
+const API     = "https://vizzel-sales-production.up.railway.app";
 
+let token    = "";
+let projects = [];
+let prevTab  = "pipeline";
+let curTab   = "pipeline";
+
+const STATUS = {
+  prospect:    { label: "โอกาส",    th: "Prospect"    },
+  trial:       { label: "ทดลอง",    th: "Trial"       },
+  negotiation: { label: "เจรจา",    th: "Negotiation" },
+  won:         { label: "ชนะ",      th: "Won"         },
+  lost:        { label: "แพ้",      th: "Lost"        },
+};
+const STATUS_KEYS = ["prospect","trial","negotiation","won","lost"];
+
+/* ── Init ── */
 async function init() {
-  await liff.init({ liffId: LIFF_ID });
-  if (!liff.isLoggedIn()) {
-    document.getElementById("loginScreen").style.display = "flex";
-    return;
-  }
-  await loginWithLine();
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) { showLogin(); return; }
+    await loginWithLine();
+  } catch(e) { showLogin(); }
+}
+
+function showLogin() {
+  document.getElementById("loginScreen").style.display = "flex";
 }
 
 function doLogin() { liff.login(); }
 
 async function loginWithLine() {
-  try {
-    const accessToken = liff.getAccessToken();
-    const profile = await liff.getProfile();
-    document.getElementById("userName").textContent = profile.displayName;
-    document.getElementById("userPic").src = profile.pictureUrl;
-    const res = await fetch(API + "/api/v1/auth/line", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_token: accessToken })
-    });
-    const data = await res.json();
-    token = data.token;
-    document.getElementById("loginScreen").style.display = "none";
-    document.getElementById("app").style.display = "block";
-    loadProjects();
-  } catch(e) { alert("Login failed: " + e.message); }
+  const [accessToken, profile] = await Promise.all([
+    liff.getAccessToken(),
+    liff.getProfile(),
+  ]);
+  document.getElementById("userName").textContent = profile.displayName;
+  document.getElementById("userPic").src = profile.pictureUrl || "";
+
+  const res = await fetch(API + "/api/v1/auth/line", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+  if (!res.ok) throw new Error("auth failed");
+  const data = await res.json();
+  token = data.token;
+
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("app").style.display        = "flex";
+  loadProjects();
 }
 
+/* ── Data ── */
 async function loadProjects() {
   try {
     const res = await fetch(API + "/api/v1/projects", {
-      headers: { "Authorization": "Bearer " + token }
+      headers: { "Authorization": "Bearer " + token },
     });
-    const { data: projects } = await res.json();
-    const list = document.getElementById("projectList");
-    if (!projects || projects.length === 0) {
-      list.innerHTML = '<div class="loading">ยังไม่มีโครงการ</div>';
-      return;
-    }
-    list.innerHTML = projects.map(p => `
-      <div class="project-item">
-        <div class="name">${p.name || '-'}</div>
-        <div class="sub">${p.description || ''} · ${p.status || 'active'}</div>
-      </div>`).join("");
-  } catch(e) { document.getElementById("projectList").innerHTML = '<div class="loading">โหลดไม่สำเร็จ: ' + e.message + '</div>'; }
+    if (!res.ok) throw new Error("fetch failed");
+    projects = await res.json();
+    renderPipeline();
+    renderProjectsList();
+  } catch(e) {
+    toast("โหลดข้อมูลไม่สำเร็จ");
+    document.getElementById("pipelineGrid").innerHTML   = emptyHTML("⚠️","โหลดไม่สำเร็จ","grid-column:1/-1");
+    document.getElementById("pipelineRecent").innerHTML = "";
+    document.getElementById("projectsEl").innerHTML     = "";
+  }
+}
+
+/* ── Pipeline view ── */
+function renderPipeline() {
+  const counts = {};
+  STATUS_KEYS.forEach(s => counts[s] = 0);
+  projects.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
+
+  document.getElementById("pipelineGrid").innerHTML = STATUS_KEYS.map(s => `
+    <div class="pipeline-card pc-${s}" onclick="filterAndGo('${s}')">
+      <div class="count">${counts[s]}</div>
+      <div class="label">${STATUS[s].label}</div>
+    </div>`).join("");
+
+  const recent = projects.slice(0, 5);
+  document.getElementById("pipelineRecent").innerHTML = recent.length
+    ? recent.map(rowHTML).join("")
+    : emptyHTML("📂","ยังไม่มีโครงการ");
+}
+
+function filterAndGo(status) {
+  renderProjectsList(status);
+  showTab("projects", false);
+}
+
+/* ── Projects list view ── */
+function renderProjectsList(filterStatus) {
+  const list = filterStatus ? projects.filter(p => p.status === filterStatus) : projects;
+  document.getElementById("projectsEl").innerHTML = list.length
+    ? list.map(rowHTML).join("")
+    : emptyHTML("📂","ยังไม่มีโครงการ");
+}
+
+function rowHTML(p) {
+  const sub = [p.region, p.contact_person].filter(Boolean).join(" · ");
+  return `<div class="proj-row" onclick="showDetail('${esc(p.id)}')">
+    <div class="proj-row-info">
+      <div class="proj-name">${esc(p.agency_name || '-')}</div>
+      ${sub ? `<div class="proj-sub">${esc(sub)}</div>` : ""}
+    </div>
+    <span class="badge b-${p.status}">${STATUS[p.status]?.label || p.status}</span>
+    <span class="chevron">›</span>
+  </div>`;
+}
+
+/* ── Create ── */
+async function submitCreate() {
+  const agency = document.getElementById("f-agency").value.trim();
+  if (!agency) { toast("กรุณากรอกชื่อหน่วยงาน"); return; }
+
+  const payload = {
+    agency_name:    agency,
+    region:         document.getElementById("f-region").value.trim(),
+    contact_person: document.getElementById("f-contact").value.trim(),
+    contact_phone:  document.getElementById("f-phone").value.trim(),
+    status:         document.getElementById("f-status").value,
+  };
+
+  try {
+    const res = await fetch(API + "/api/v1/projects", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "error"); }
+    const created = await res.json();
+    projects.unshift(created);
+
+    ["f-agency","f-region","f-contact","f-phone"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("f-status").value = "prospect";
+
+    toast("สร้างโครงการสำเร็จ ✓");
+    renderPipeline();
+    renderProjectsList();
+    showTab("pipeline");
+  } catch(e) {
+    toast("สร้างไม่สำเร็จ: " + e.message);
+  }
+}
+
+/* ── Detail ── */
+function showDetail(id) {
+  prevTab = curTab;
+  const p = projects.find(x => x.id === id);
+  if (!p) return;
+
+  const statusBtns = STATUS_KEYS.map(s => `
+    <button class="s-btn s-${s} ${p.status === s ? 'on' : ''}"
+            onclick="changeStatus('${esc(p.id)}','${s}',this)">${STATUS[s].label}</button>`).join("");
+
+  document.getElementById("detailContent").innerHTML = `
+    <div class="detail-card">
+      <div class="detail-row"><div class="detail-key">หน่วยงาน</div><div class="detail-val">${esc(p.agency_name||'-')}</div></div>
+      <div class="detail-row"><div class="detail-key">จังหวัด</div><div class="detail-val">${esc(p.region||'-')}</div></div>
+      <div class="detail-row"><div class="detail-key">ผู้ติดต่อ</div><div class="detail-val">${esc(p.contact_person||'-')}</div></div>
+      <div class="detail-row"><div class="detail-key">โทรศัพท์</div>
+        <div class="detail-val">${p.contact_phone
+          ? `<a href="tel:${esc(p.contact_phone)}">${esc(p.contact_phone)}</a>`
+          : '-'}</div></div>
+      <div class="detail-row"><div class="detail-key">สถานะ</div>
+        <div class="detail-val"><span class="badge b-${p.status}">${STATUS[p.status]?.label||p.status}</span></div></div>
+      <div class="detail-row"><div class="detail-key">สร้างเมื่อ</div><div class="detail-val">${fmtDate(p.created_at)}</div></div>
+    </div>
+    <div class="sec-title" style="margin-bottom:10px">เปลี่ยนสถานะ</div>
+    <div class="detail-card" style="padding:14px 16px">
+      <div class="status-grid">${statusBtns}</div>
+    </div>`;
+
+  activateScreen("detail");
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+}
+
+async function changeStatus(id, status, btn) {
+  try {
+    const res = await fetch(`${API}/api/v1/projects/${id}/status`, {
+      method: "PUT",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error("failed");
+
+    const p = projects.find(x => x.id === id);
+    if (p) p.status = status;
+
+    btn.closest(".status-grid").querySelectorAll(".s-btn").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+
+    const badge = document.querySelector(".detail-card .badge");
+    if (badge) { badge.className = `badge b-${status}`; badge.textContent = STATUS[status]?.label || status; }
+
+    toast("อัปเดตสถานะสำเร็จ ✓");
+    renderPipeline();
+    renderProjectsList();
+  } catch(e) {
+    toast("อัปเดตไม่สำเร็จ");
+  }
+}
+
+/* ── Navigation ── */
+function showTab(tab, resetList) {
+  if (resetList !== false) renderProjectsList();
+  prevTab = curTab;
+  curTab  = tab;
+  document.querySelectorAll(".tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === tab);
+  });
+  activateScreen(tab);
+}
+
+function activateScreen(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  const el = document.getElementById("screen-" + name);
+  if (el) el.classList.add("active");
+}
+
+function goBack() {
+  showTab(prevTab, false);
+}
+
+/* ── Helpers ── */
+function emptyHTML(icon, text, style) {
+  return `<div class="empty"${style ? ` style="${style}"` : ""}><div class="empty-icon">${icon}</div><div class="empty-text">${text}</div></div>`;
+}
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("show"), 2500);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric' });
+}
+
+function esc(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 init();
