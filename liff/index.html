@@ -11,116 +11,144 @@
 
     /* ── Splash ── */
     #splash { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 20px; text-align: center; }
-    .logo-icon { font-size: 64px; margin-bottom: 20px; }
-    .splash-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
-    .splash-sub { color: #8e8e93; font-size: 15px; line-height: 1.5; margin-bottom: 32px; }
-    .splash-spinner { width: 36px; height: 36px; border: 3px solid #e5e5ea; border-top-color: #06C755; border-radius: 50%; animation: spin 0.7s linear infinite; }
-    .splash-err { color: #FF3B30; font-size: 14px; margin-top: 16px; }
+    .splash-icon  { font-size: 60px; margin-bottom: 18px; }
+    .splash-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+    .splash-sub   { color: #8e8e93; font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
+    .splash-spinner { width: 32px; height: 32px; border: 3px solid #e5e5ea; border-top-color: #06C755; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    .splash-err   { color: #FF3B30; font-size: 13px; margin-top: 14px; line-height: 1.4; }
 
-    /* ── App Shell ── */
+    /* ── App ── */
     #app { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
-    .header { background: #06C755; color: white; padding: 12px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .header img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: rgba(255,255,255,0.3); }
-    .header-info h1 { font-size: 16px; font-weight: 600; line-height: 1.2; }
-    .header-info p { font-size: 11px; opacity: 0.85; margin-top: 1px; }
+    .hdr { background: #06C755; color: white; padding: 11px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .hdr img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: rgba(255,255,255,.25); }
+    .hdr-info h1 { font-size: 15px; font-weight: 600; }
+    .hdr-info p  { font-size: 11px; opacity: .85; }
 
     /* ── Tabs ── */
     .tabs { background: white; display: flex; border-bottom: 1px solid #e5e5ea; flex-shrink: 0; }
-    .tab { flex: 1; padding: 10px 4px; text-align: center; font-size: 12px; color: #8e8e93; border: none; background: none; cursor: pointer; font-weight: 500; position: relative; transition: color 0.15s; }
-    .tab.active { color: #06C755; font-weight: 600; }
-    .tab.active::after { content: ''; position: absolute; bottom: 0; left: 15%; right: 15%; height: 2px; background: #06C755; border-radius: 2px 2px 0 0; }
+    .tab  { flex: 1; padding: 9px 2px; text-align: center; font-size: 12px; color: #8e8e93; border: none; background: none; cursor: pointer; font-weight: 500; font-family: inherit; position: relative; }
+    .tab.on { color: #06C755; font-weight: 600; }
+    .tab.on::after { content: ''; position: absolute; bottom: 0; left: 15%; right: 15%; height: 2px; background: #06C755; border-radius: 2px 2px 0 0; }
 
     /* ── Content ── */
-    .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+    .content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px; }
     .screen { display: none; }
-    .screen.active { display: block; }
+    .screen.on { display: block; }
 
-    /* ── Pipeline Cards ── */
-    .pipeline-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-    .pipeline-card { background: white; border-radius: 12px; padding: 14px 12px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-top: 4px solid; cursor: pointer; transition: transform 0.12s; }
-    .pipeline-card:active { transform: scale(0.97); }
-    .pipeline-card .count { font-size: 30px; font-weight: 700; line-height: 1; }
-    .pipeline-card .label { font-size: 12px; color: #8e8e93; margin-top: 5px; }
-    .pc-prospect  { border-color: #007AFF; } .pc-prospect  .count { color: #007AFF; }
-    .pc-trial     { border-color: #FF9500; } .pc-trial     .count { color: #FF9500; }
-    .pc-negotiation { border-color: #AF52DE; } .pc-negotiation .count { color: #AF52DE; }
-    .pc-won       { border-color: #34C759; } .pc-won       .count { color: #34C759; }
-    .pc-lost      { border-color: #FF3B30; } .pc-lost      .count { color: #FF3B30; }
+    /* ── Pipeline grid ── */
+    .pipe-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
+    .pipe-card { background: white; border-radius: 10px; padding: 10px 6px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.07); border-top: 3px solid; cursor: pointer; transition: transform .12s; }
+    .pipe-card:active { transform: scale(.96); }
+    .pipe-card .cnt  { font-size: 26px; font-weight: 700; line-height: 1; }
+    .pipe-card .lbl  { font-size: 10px; color: #8e8e93; margin-top: 4px; line-height: 1.2; }
+    /* color groups */
+    .cg-gray   { border-color: #8e8e93; } .cg-gray   .cnt { color: #8e8e93; }
+    .cg-blue   { border-color: #007AFF; } .cg-blue   .cnt { color: #007AFF; }
+    .cg-orange { border-color: #FF9500; } .cg-orange .cnt { color: #FF9500; }
+    .cg-green  { border-color: #34C759; } .cg-green  .cnt { color: #34C759; }
+    .cg-red    { border-color: #FF3B30; } .cg-red    .cnt { color: #FF3B30; }
 
     /* ── Section title ── */
-    .sec-title { font-size: 12px; font-weight: 600; color: #8e8e93; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+    .sec { font-size: 11px; font-weight: 600; color: #8e8e93; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
 
-    /* ── Project List ── */
-    .proj-list { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
-    .proj-row { padding: 13px 16px; border-bottom: 1px solid #f2f2f7; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background 0.12s; }
-    .proj-row:last-child { border-bottom: none; }
-    .proj-row:active { background: #f5f5f5; }
-    .proj-row-info { flex: 1; min-width: 0; }
-    .proj-name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .proj-sub { font-size: 12px; color: #8e8e93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chevron { color: #c7c7cc; font-size: 16px; flex-shrink: 0; }
+    /* ── Project list ── */
+    .plist { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+    .prow  { padding: 12px 14px; border-bottom: 1px solid #f2f2f7; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background .1s; }
+    .prow:last-child { border-bottom: none; }
+    .prow:active { background: #f5f5f5; }
+    .prow-info { flex: 1; min-width: 0; }
+    .prow-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .prow-sub  { font-size: 12px; color: #8e8e93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chev { color: #c7c7cc; font-size: 16px; flex-shrink: 0; }
 
     /* ── Badges ── */
-    .badge { display: inline-block; padding: 3px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
-    .b-prospect    { background: #e3f0ff; color: #007AFF; }
-    .b-trial       { background: #fff3e0; color: #FF9500; }
-    .b-negotiation { background: #f3e8ff; color: #AF52DE; }
-    .b-won         { background: #e8f9ed; color: #34C759; }
-    .b-lost        { background: #ffe8e8; color: #FF3B30; }
+    .bdg { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+    .bg-gray   { background: #e5e5ea; color: #636366; }
+    .bg-blue   { background: #dff0ff; color: #007AFF; }
+    .bg-orange { background: #fff3e0; color: #FF9500; }
+    .bg-green  { background: #e4f9ec; color: #34C759; }
+    .bg-red    { background: #ffe5e5; color: #FF3B30; }
 
     /* ── Form ── */
-    .form-card { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
-    .form-row { display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid #f2f2f7; }
-    .form-row:last-child { border-bottom: none; }
-    .form-label { font-size: 13px; color: #8e8e93; width: 88px; flex-shrink: 0; padding: 14px 0; }
-    .form-input { flex: 1; border: none; outline: none; font-size: 15px; padding: 14px 0 14px 8px; color: #1c1c1e; background: transparent; width: 100%; font-family: inherit; }
-    .form-input::placeholder { color: #c7c7cc; }
-    select.form-input { appearance: none; -webkit-appearance: none; }
-
-    /* ── Buttons ── */
-    .btn { display: block; width: 100%; padding: 15px; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: opacity 0.15s; }
-    .btn:active { opacity: 0.8; }
-    .btn-green { background: #06C755; color: white; }
-    .btn-outline { background: white; color: #06C755; border: 2px solid #06C755; }
+    .fcard { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+    .frow  { display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid #f2f2f7; }
+    .frow:last-child { border-bottom: none; }
+    .flbl  { font-size: 13px; color: #8e8e93; width: 80px; flex-shrink: 0; padding: 13px 0; }
+    .finp  { flex: 1; border: none; outline: none; font-size: 15px; padding: 13px 0 13px 8px; color: #1c1c1e; background: transparent; width: 100%; font-family: inherit; }
+    .finp::placeholder { color: #c7c7cc; }
+    select.finp { appearance: none; -webkit-appearance: none; }
 
     /* ── Detail ── */
-    .detail-card { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
-    .detail-row { display: flex; padding: 13px 16px; border-bottom: 1px solid #f2f2f7; align-items: flex-start; }
-    .detail-row:last-child { border-bottom: none; }
-    .detail-key { font-size: 13px; color: #8e8e93; width: 100px; flex-shrink: 0; padding-top: 1px; }
-    .detail-val { flex: 1; font-size: 15px; word-break: break-word; }
-    .detail-val a { color: #007AFF; text-decoration: none; }
+    .dcard { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+    .drow  { display: flex; padding: 12px 14px; border-bottom: 1px solid #f2f2f7; }
+    .drow:last-child { border-bottom: none; }
+    .dkey  { font-size: 13px; color: #8e8e93; width: 100px; flex-shrink: 0; }
+    .dval  { flex: 1; font-size: 14px; word-break: break-word; }
+    .dval a { color: #007AFF; text-decoration: none; }
 
-    /* ── Status picker ── */
-    .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .s-btn { padding: 10px 2px; border-radius: 8px; border: 2px solid; background: white; font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: all 0.15s; }
-    .s-prospect { border-color:#007AFF; color:#007AFF; } .s-prospect.on  { background:#007AFF; color:white; }
-    .s-trial     { border-color:#FF9500; color:#FF9500; } .s-trial.on     { background:#FF9500; color:white; }
-    .s-negotiation { border-color:#AF52DE; color:#AF52DE; } .s-negotiation.on { background:#AF52DE; color:white; }
-    .s-won       { border-color:#34C759; color:#34C759; } .s-won.on       { background:#34C759; color:white; }
-    .s-lost      { border-color:#FF3B30; color:#FF3B30; } .s-lost.on      { background:#FF3B30; color:white; }
+    /* ── Document list ── */
+    .doc-row { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid #f2f2f7; gap: 10px; }
+    .doc-row:last-child { border-bottom: none; }
+    .doc-icon { font-size: 22px; flex-shrink: 0; }
+    .doc-info { flex: 1; min-width: 0; }
+    .doc-type { font-size: 13px; font-weight: 600; }
+    .doc-date { font-size: 11px; color: #8e8e93; margin-top: 2px; }
+    .doc-link { color: #007AFF; font-size: 12px; flex-shrink: 0; }
 
-    /* ── Back btn ── */
-    .back-btn { display: inline-flex; align-items: center; gap: 5px; color: #06C755; background: none; border: none; font-size: 15px; cursor: pointer; padding: 0; margin-bottom: 14px; font-weight: 500; font-family: inherit; }
+    /* ── Status buttons ── */
+    .sbtn-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sbtn { padding: 9px 14px; border-radius: 20px; border: 2px solid; background: white; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s; }
+    .sbtn:active { opacity: .75; }
+    .sbtn.cg-gray   { border-color: #8e8e93; color: #8e8e93; }
+    .sbtn.cg-blue   { border-color: #007AFF; color: #007AFF; }
+    .sbtn.cg-orange { border-color: #FF9500; color: #FF9500; }
+    .sbtn.cg-green  { border-color: #34C759; color: #34C759; }
+    .sbtn.cg-red    { border-color: #FF3B30; color: #FF3B30; }
 
-    /* ── Loading / Empty ── */
-    .spinner-wrap { display: flex; justify-content: center; padding: 44px 0; }
-    .spinner { width: 30px; height: 30px; border: 3px solid #e5e5ea; border-top-color: #06C755; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    /* ── Buttons ── */
+    .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: opacity .15s; }
+    .btn:active { opacity: .8; }
+    .btn-green { background: #06C755; color: white; }
+    .back-btn  { display: inline-flex; align-items: center; gap: 4px; color: #06C755; background: none; border: none; font-size: 15px; cursor: pointer; padding: 0; margin-bottom: 12px; font-weight: 500; font-family: inherit; }
+
+    /* ── Overlay ── */
+    #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: flex-end; }
+    #overlay.on { display: flex; }
+    .ov-box { background: white; border-radius: 20px 20px 0 0; width: 100%; padding: 20px 18px 32px; }
+    .ov-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .ov-sub   { font-size: 13px; color: #8e8e93; margin-bottom: 16px; line-height: 1.4; }
+    .ov-section { margin-bottom: 12px; }
+    .ov-label { font-size: 12px; color: #8e8e93; margin-bottom: 4px; }
+    .ov-input { width: 100%; border: 1.5px solid #e5e5ea; border-radius: 10px; padding: 11px 12px; font-size: 15px; font-family: inherit; outline: none; }
+    .ov-input:focus { border-color: #06C755; }
+    textarea.ov-input { resize: none; height: 90px; }
+    .file-trigger { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1.5px dashed #c7c7cc; border-radius: 10px; cursor: pointer; }
+    .file-trigger.has-file { border-color: #06C755; background: #f0fdf4; }
+    .file-trigger-icon { font-size: 24px; }
+    .file-trigger-text { font-size: 13px; color: #8e8e93; }
+    .file-trigger-name { font-size: 13px; color: #06C755; font-weight: 600; }
+    #file-input { display: none; }
+    .ov-btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    .ov-btn     { flex: 1; padding: 13px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; border: none; }
+    .ov-btn-primary { background: #06C755; color: white; }
+    .ov-btn-cancel  { background: #f2f2f7; color: #3c3c43; }
+
+    /* ── Misc ── */
+    .spin-wrap { display: flex; justify-content: center; padding: 36px 0; }
+    .spinner   { width: 28px; height: 28px; border: 3px solid #e5e5ea; border-top-color: #06C755; border-radius: 50%; animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .empty { text-align: center; padding: 40px 20px; color: #8e8e93; }
-    .empty-icon { font-size: 38px; margin-bottom: 10px; }
+    .empty { text-align: center; padding: 36px 20px; color: #8e8e93; }
+    .empty-icon { font-size: 36px; margin-bottom: 8px; }
     .empty-text { font-size: 14px; }
-
-    /* ── Toast ── */
-    .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: rgba(28,28,30,0.92); color: white; padding: 11px 20px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 999; white-space: nowrap; }
-    .toast.show { opacity: 1; }
+    .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); background: rgba(28,28,30,.9); color: white; padding: 10px 18px; border-radius: 20px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 200; white-space: nowrap; }
+    .toast.on { opacity: 1; }
   </style>
 </head>
 <body>
 
-<!-- ── Splash / Loading ── -->
+<!-- ── Splash ── -->
 <div id="splash">
-  <div class="logo-icon">📊</div>
+  <div class="splash-icon">📊</div>
   <h2 class="splash-title">Vizzel Sales</h2>
   <p class="splash-sub">ระบบจัดการลูกค้า<br>หน่วยงานราชการ</p>
   <div class="splash-spinner"></div>
@@ -128,69 +156,81 @@
 
 <!-- ── App ── -->
 <div id="app">
-  <div class="header">
-    <img id="userPic" src="" alt="">
-    <div class="header-info">
-      <h1>สวัสดี, <span id="userName">...</span></h1>
+  <div class="hdr">
+    <img id="uPic" src="" alt="">
+    <div class="hdr-info">
+      <h1>สวัสดี, <span id="uName">...</span></h1>
       <p>Vizzel Sales CRM</p>
     </div>
   </div>
 
   <div class="tabs">
-    <button class="tab active" data-tab="pipeline" onclick="showTab('pipeline')">📊 Pipeline</button>
-    <button class="tab"        data-tab="projects" onclick="showTab('projects')">📋 โครงการ</button>
-    <button class="tab"        data-tab="create"   onclick="showTab('create')">➕ สร้าง</button>
+    <button class="tab on" data-tab="pipeline" onclick="showTab('pipeline')">📊 Pipeline</button>
+    <button class="tab"    data-tab="projects" onclick="showTab('projects')">📋 โครงการ</button>
+    <button class="tab"    data-tab="create"   onclick="showTab('create')">➕ สร้าง</button>
   </div>
 
   <div class="content">
 
     <!-- Pipeline -->
-    <div class="screen active" id="screen-pipeline">
-      <div class="pipeline-grid" id="pipelineGrid">
-        <div class="spinner-wrap" style="grid-column:1/-1"><div class="spinner"></div></div>
+    <div class="screen on" id="screen-pipeline">
+      <div class="pipe-grid" id="pipeGrid">
+        <div class="spin-wrap" style="grid-column:1/-1"><div class="spinner"></div></div>
       </div>
-      <div class="sec-title">โครงการล่าสุด</div>
-      <div class="proj-list" id="pipelineRecent">
-        <div class="spinner-wrap"><div class="spinner"></div></div>
-      </div>
+      <div class="sec">โครงการล่าสุด</div>
+      <div class="plist" id="pipeRecent"></div>
     </div>
 
     <!-- Projects list -->
     <div class="screen" id="screen-projects">
-      <div class="proj-list" id="projectsEl">
-        <div class="spinner-wrap"><div class="spinner"></div></div>
-      </div>
+      <div class="plist" id="projList"></div>
     </div>
 
     <!-- Create form -->
     <div class="screen" id="screen-create">
-      <div class="sec-title" style="margin-bottom:12px">ข้อมูลโครงการใหม่</div>
-      <div class="form-card">
-        <div class="form-row">
-          <label class="form-label">หน่วยงาน *</label>
-          <input class="form-input" id="f-agency" placeholder="ชื่อหน่วยงาน/องค์กร">
+      <div class="sec" style="margin-bottom:10px">ข้อมูลโครงการใหม่</div>
+      <div class="fcard">
+        <div class="frow">
+          <label class="flbl">หน่วยงาน *</label>
+          <input class="finp" id="f-agency" placeholder="ชื่อหน่วยงาน / องค์กร">
         </div>
-        <div class="form-row">
-          <label class="form-label">จังหวัด</label>
-          <input class="form-input" id="f-region" placeholder="จังหวัด / ภูมิภาค">
-        </div>
-        <div class="form-row">
-          <label class="form-label">ผู้ติดต่อ</label>
-          <input class="form-input" id="f-contact" placeholder="ชื่อผู้ติดต่อ">
-        </div>
-        <div class="form-row">
-          <label class="form-label">โทรศัพท์</label>
-          <input class="form-input" id="f-phone" type="tel" placeholder="เบอร์โทรศัพท์">
-        </div>
-        <div class="form-row">
-          <label class="form-label">สถานะ</label>
-          <select class="form-input" id="f-status">
-            <option value="prospect">โอกาส (Prospect)</option>
-            <option value="trial">ทดลอง (Trial)</option>
-            <option value="negotiation">เจรจา (Negotiation)</option>
-            <option value="won">ชนะ (Won)</option>
-            <option value="lost">แพ้ (Lost)</option>
+        <div class="frow">
+          <label class="flbl">ประเภท</label>
+          <select class="finp" id="f-atype">
+            <option value="">-- เลือกประเภท --</option>
+            <option>กระทรวง</option>
+            <option>กรม</option>
+            <option>องค์การบริหารส่วนจังหวัด</option>
+            <option>องค์การบริหารส่วนตำบล</option>
+            <option>เทศบาลนคร</option>
+            <option>เทศบาลเมือง</option>
+            <option>เทศบาลตำบล</option>
+            <option>รัฐวิสาหกิจ</option>
+            <option>โรงเรียน</option>
+            <option>วิทยาลัย</option>
+            <option>มหาวิทยาลัย</option>
+            <option>โรงพยาบาลศูนย์</option>
+            <option>โรงพยาบาลทั่วไป</option>
+            <option>โรงพยาบาลชุมชน</option>
+            <option>โรงพยาบาลเอกชน</option>
+            <option>บริษัทเอกชน</option>
           </select>
+        </div>
+        <div class="frow">
+          <label class="flbl">จังหวัด</label>
+          <input class="finp" id="f-region" placeholder="จังหวัด / ภูมิภาค">
+        </div>
+        <div class="frow">
+          <label class="flbl">ผู้ติดต่อ</label>
+          <input class="finp" id="f-contact" placeholder="ชื่อผู้ติดต่อ">
+        </div>
+        <div class="frow">
+          <label class="flbl">ตำแหน่ง</label>
+          <input class="finp" id="f-pos" placeholder="ตำแหน่ง / แผนก">
+        </div>
+        <div class="frow">
+          <label class="flbl">โทรศัพท์ *</label>
+          <input class="finp" id="f-phone" type="tel" placeholder="เบอร์โทรศัพท์">
         </div>
       </div>
       <button class="btn btn-green" onclick="submitCreate()">สร้างโครงการ</button>
@@ -205,6 +245,20 @@
   </div><!-- /content -->
 </div><!-- /app -->
 
+<!-- ── Overlay ── -->
+<div id="overlay" onclick="ovClickOutside(event)">
+  <div class="ov-box" id="ov-box">
+    <div class="ov-title" id="ov-title"></div>
+    <div class="ov-sub"   id="ov-sub"></div>
+    <div id="ov-body"></div>
+    <div class="ov-btn-row">
+      <button class="ov-btn ov-btn-cancel"  onclick="closeOverlay()">ยกเลิก</button>
+      <button class="ov-btn ov-btn-primary" id="ov-confirm" onclick="confirmOverlay()">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx">
 <div class="toast" id="toast"></div>
 
 <script>
@@ -213,45 +267,63 @@ const API     = "https://vizzel-sales-production.up.railway.app";
 
 let token    = "";
 let projects = [];
-let prevTab  = "pipeline";
 let curTab   = "pipeline";
+let prevTab  = "pipeline";
+let detailProjectID = "";
 
+/* ─── Status metadata ─── */
 const STATUS = {
-  prospect:    { label: "โอกาส",    th: "Prospect"    },
-  trial:       { label: "ทดลอง",    th: "Trial"       },
-  negotiation: { label: "เจรจา",    th: "Negotiation" },
-  won:         { label: "ชนะ",      th: "Won"         },
-  lost:        { label: "แพ้",      th: "Lost"        },
+  registrator: { label: "Registrator",     short: "Registr.",   group: "gray"   },
+  present:     { label: "นัดหมาย Present", short: "Present",    group: "blue"   },
+  demo:        { label: "นัดหมาย Demo",    short: "Demo",       group: "blue"   },
+  site_survey: { label: "นัดหมาย Site Survey", short: "Site Survey", group: "blue" },
+  quotation:   { label: "ส่งใบเสนอราคา",  short: "Quotation",  group: "orange" },
+  tor:         { label: "ส่งร่าง TOR",     short: "TOR",        group: "orange" },
+  contract:    { label: "แนบสัญญา",        short: "Contract",   group: "orange" },
+  won:         { label: "Won",             short: "Won",        group: "green"  },
+  closing:     { label: "แนบเอกสารปิดงาน", short: "Closing",    group: "green"  },
+  closed:      { label: "ปิดงาน",          short: "Closed",     group: "green"  },
+  reject:      { label: "Reject",          short: "Reject",     group: "red"    },
 };
-const STATUS_KEYS = ["prospect","trial","negotiation","won","lost"];
+const STATUS_KEYS = Object.keys(STATUS);
 
-/* ── Init ── */
+/* Transitions: which statuses can follow each status */
+const NEXT = {
+  registrator:  ["present","demo","site_survey","reject"],
+  present:      ["demo","site_survey","quotation","reject"],
+  demo:         ["site_survey","quotation","reject"],
+  site_survey:  ["quotation","reject"],
+  quotation:    ["tor","contract","reject"],
+  tor:          ["contract","reject"],
+  contract:     ["won","reject"],
+  won:          ["closing"],
+  closing:      ["closed","reject"],
+  closed:       [],
+  reject:       ["registrator"],
+};
+
+/* Statuses that require >= 1 doc before the backend will accept the transition */
+const NEEDS_DOC = new Set(["quotation","contract","closing"]);
+
+/* ─── Init ─── */
 async function init() {
   try {
     await liff.init({ liffId: LIFF_ID });
-    if (!liff.isLoggedIn()) {
-      // liff.login() navigates the page away to LINE auth.
-      // When LINE redirects back, liff.init() processes the callback
-      // and isLoggedIn() returns true — so this branch never runs twice.
-      liff.login();
-      return;
-    }
+    if (!liff.isLoggedIn()) { liff.login(); return; }
     await loginWithLine();
   } catch(e) {
-    const splash = document.getElementById("splash");
-    const err = document.createElement("p");
-    err.className = "splash-err";
-    err.textContent = "เกิดข้อผิดพลาด: " + e.message;
-    splash.appendChild(err);
+    const el = document.createElement("p");
+    el.className = "splash-err";
+    el.textContent = "เกิดข้อผิดพลาด: " + e.message;
+    document.getElementById("splash").appendChild(el);
   }
 }
 
 async function loginWithLine() {
   const accessToken = liff.getAccessToken();
   const profile     = await liff.getProfile();
-
-  document.getElementById("userName").textContent = profile.displayName;
-  document.getElementById("userPic").src = profile.pictureUrl || "";
+  document.getElementById("uName").textContent = profile.displayName;
+  document.getElementById("uPic").src          = profile.pictureUrl || "";
 
   const res = await fetch(API + "/api/v1/auth/line", {
     method: "POST",
@@ -259,209 +331,365 @@ async function loginWithLine() {
     body: JSON.stringify({ access_token: accessToken }),
   });
   if (!res.ok) throw new Error("auth failed " + res.status);
-  const data = await res.json();
-  token = data.token;
+  token = (await res.json()).token;
 
   document.getElementById("splash").style.display = "none";
   document.getElementById("app").style.display    = "flex";
   loadProjects();
 }
 
-/* ── Data ── */
+/* ─── Data ─── */
 async function loadProjects() {
   try {
     const res = await fetch(API + "/api/v1/projects", {
-      headers: { "Authorization": "Bearer " + token },
+      headers: { Authorization: "Bearer " + token },
     });
-    if (!res.ok) throw new Error("fetch failed");
+    if (!res.ok) throw new Error();
     projects = await res.json();
     renderPipeline();
-    renderProjectsList();
-  } catch(e) {
+    renderProjList();
+  } catch {
     toast("โหลดข้อมูลไม่สำเร็จ");
-    document.getElementById("pipelineGrid").innerHTML   = emptyHTML("⚠️","โหลดไม่สำเร็จ","grid-column:1/-1");
-    document.getElementById("pipelineRecent").innerHTML = "";
-    document.getElementById("projectsEl").innerHTML     = "";
+    document.getElementById("pipeGrid").innerHTML = emptyH("⚠️","โหลดไม่สำเร็จ","grid-column:1/-1");
   }
 }
 
-/* ── Pipeline view ── */
+/* ─── Pipeline ─── */
 function renderPipeline() {
   const counts = {};
   STATUS_KEYS.forEach(s => counts[s] = 0);
   projects.forEach(p => { if (counts[p.status] !== undefined) counts[p.status]++; });
 
-  document.getElementById("pipelineGrid").innerHTML = STATUS_KEYS.map(s => `
-    <div class="pipeline-card pc-${s}" onclick="filterAndGo('${s}')">
-      <div class="count">${counts[s]}</div>
-      <div class="label">${STATUS[s].label}</div>
-    </div>`).join("");
+  document.getElementById("pipeGrid").innerHTML = STATUS_KEYS.map(s => {
+    const g = STATUS[s].group;
+    return `<div class="pipe-card cg-${g}" onclick="filterGo('${s}')">
+      <div class="cnt">${counts[s]}</div>
+      <div class="lbl">${STATUS[s].short}</div>
+    </div>`;
+  }).join("");
 
   const recent = projects.slice(0, 5);
-  document.getElementById("pipelineRecent").innerHTML = recent.length
-    ? recent.map(rowHTML).join("")
-    : emptyHTML("📂","ยังไม่มีโครงการ");
+  document.getElementById("pipeRecent").innerHTML =
+    recent.length ? recent.map(rowH).join("") : emptyH("📂","ยังไม่มีโครงการ");
 }
 
-function filterAndGo(status) {
-  renderProjectsList(status);
+function filterGo(status) {
+  renderProjList(status);
   showTab("projects", false);
 }
 
-/* ── Projects list view ── */
-function renderProjectsList(filterStatus) {
+/* ─── Project list ─── */
+function renderProjList(filterStatus) {
   const list = filterStatus ? projects.filter(p => p.status === filterStatus) : projects;
-  document.getElementById("projectsEl").innerHTML = list.length
-    ? list.map(rowHTML).join("")
-    : emptyHTML("📂","ยังไม่มีโครงการ");
+  document.getElementById("projList").innerHTML =
+    list.length ? list.map(rowH).join("") : emptyH("📂","ยังไม่มีโครงการ");
 }
 
-function rowHTML(p) {
-  const sub = [p.region, p.contact_person].filter(Boolean).join(" · ");
-  return `<div class="proj-row" onclick="showDetail('${esc(p.id)}')">
-    <div class="proj-row-info">
-      <div class="proj-name">${esc(p.agency_name || '-')}</div>
-      ${sub ? `<div class="proj-sub">${esc(sub)}</div>` : ""}
+function rowH(p) {
+  const sub = [p.agency_type, p.region].filter(Boolean).join(" · ");
+  const g   = STATUS[p.status]?.group || "gray";
+  return `<div class="prow" onclick="showDetail('${esc(p.id)}')">
+    <div class="prow-info">
+      <div class="prow-name">${esc(p.agency_name||'-')}</div>
+      ${sub ? `<div class="prow-sub">${esc(sub)}</div>` : ""}
     </div>
-    <span class="badge b-${p.status}">${STATUS[p.status]?.label || p.status}</span>
-    <span class="chevron">›</span>
+    <span class="bdg bg-${g}">${STATUS[p.status]?.short || p.status}</span>
+    <span class="chev">›</span>
   </div>`;
 }
 
-/* ── Create ── */
+/* ─── Create ─── */
 async function submitCreate() {
   const agency = document.getElementById("f-agency").value.trim();
+  const phone  = document.getElementById("f-phone").value.trim();
   if (!agency) { toast("กรุณากรอกชื่อหน่วยงาน"); return; }
+  if (!phone)  { toast("กรุณากรอกเบอร์โทรศัพท์"); return; }
 
   const payload = {
-    agency_name:    agency,
-    region:         document.getElementById("f-region").value.trim(),
-    contact_person: document.getElementById("f-contact").value.trim(),
-    contact_phone:  document.getElementById("f-phone").value.trim(),
-    status:         document.getElementById("f-status").value,
+    agency_name:      agency,
+    agency_type:      document.getElementById("f-atype").value,
+    region:           document.getElementById("f-region").value.trim(),
+    contact_person:   document.getElementById("f-contact").value.trim(),
+    contact_position: document.getElementById("f-pos").value.trim(),
+    contact_phone:    phone,
   };
 
   try {
     const res = await fetch(API + "/api/v1/projects", {
       method: "POST",
-      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "error"); }
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
     const created = await res.json();
     projects.unshift(created);
-
-    ["f-agency","f-region","f-contact","f-phone"].forEach(id => document.getElementById(id).value = "");
-    document.getElementById("f-status").value = "prospect";
-
+    ["f-agency","f-region","f-contact","f-pos","f-phone"].forEach(id => {
+      document.getElementById(id).value = "";
+    });
+    document.getElementById("f-atype").value = "";
     toast("สร้างโครงการสำเร็จ ✓");
     renderPipeline();
-    renderProjectsList();
+    renderProjList();
     showTab("pipeline");
   } catch(e) {
-    toast("สร้างไม่สำเร็จ: " + e.message);
+    toast("สร้างไม่สำเร็จ: " + (e.message || "error"));
   }
 }
 
-/* ── Detail ── */
-function showDetail(id) {
+/* ─── Detail ─── */
+async function showDetail(id) {
   prevTab = curTab;
+  detailProjectID = id;
   const p = projects.find(x => x.id === id);
   if (!p) return;
 
-  const statusBtns = STATUS_KEYS.map(s => `
-    <button class="s-btn s-${s} ${p.status === s ? 'on' : ''}"
-            onclick="changeStatus('${esc(p.id)}','${s}',this)">${STATUS[s].label}</button>`).join("");
-
-  document.getElementById("detailContent").innerHTML = `
-    <div class="detail-card">
-      <div class="detail-row"><div class="detail-key">หน่วยงาน</div><div class="detail-val">${esc(p.agency_name||'-')}</div></div>
-      <div class="detail-row"><div class="detail-key">จังหวัด</div><div class="detail-val">${esc(p.region||'-')}</div></div>
-      <div class="detail-row"><div class="detail-key">ผู้ติดต่อ</div><div class="detail-val">${esc(p.contact_person||'-')}</div></div>
-      <div class="detail-row"><div class="detail-key">โทรศัพท์</div>
-        <div class="detail-val">${p.contact_phone
-          ? `<a href="tel:${esc(p.contact_phone)}">${esc(p.contact_phone)}</a>`
-          : '-'}</div></div>
-      <div class="detail-row"><div class="detail-key">สถานะ</div>
-        <div class="detail-val"><span class="badge b-${p.status}">${STATUS[p.status]?.label||p.status}</span></div></div>
-      <div class="detail-row"><div class="detail-key">สร้างเมื่อ</div><div class="detail-val">${fmtDate(p.created_at)}</div></div>
-    </div>
-    <div class="sec-title" style="margin-bottom:10px">เปลี่ยนสถานะ</div>
-    <div class="detail-card" style="padding:14px 16px">
-      <div class="status-grid">${statusBtns}</div>
-    </div>`;
-
   activateScreen("detail");
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("on"));
+
+  document.getElementById("detailContent").innerHTML = buildDetailInfo(p) +
+    `<div class="sec" style="margin-bottom:7px">เอกสาร</div>
+     <div class="dcard" id="docsCard"><div class="spin-wrap"><div class="spinner"></div></div></div>
+     <div class="sec" style="margin-bottom:7px">เปลี่ยนสถานะ</div>
+     <div class="dcard" style="padding:14px">${buildStatusBtns(p)}</div>`;
+
+  loadDocs(id);
 }
 
-async function changeStatus(id, status, btn) {
+function buildDetailInfo(p) {
+  const rows = [
+    ["หน่วยงาน",   p.agency_name || "-"],
+    ["ประเภท",     p.agency_type || "-"],
+    ["จังหวัด",    p.region || "-"],
+    ["ผู้ติดต่อ",  p.contact_person || "-"],
+    ["ตำแหน่ง",    p.contact_position || "-"],
+    ["โทรศัพท์",   p.contact_phone
+        ? `<a href="tel:${esc(p.contact_phone)}">${esc(p.contact_phone)}</a>` : "-"],
+    ["สถานะ",      `<span class="bdg bg-${STATUS[p.status]?.group||'gray'}">${STATUS[p.status]?.label||p.status}</span>`],
+    ...(p.reject_reason ? [["เหตุผล Reject", esc(p.reject_reason)]] : []),
+    ...(p.status_note   ? [["หมายเหตุ",      esc(p.status_note)]]   : []),
+    ["สร้างเมื่อ", fmtDate(p.created_at)],
+  ];
+  return `<div class="dcard" style="margin-bottom:12px">${
+    rows.map(([k,v]) => `<div class="drow"><div class="dkey">${k}</div><div class="dval">${v}</div></div>`).join("")
+  }</div>`;
+}
+
+function buildStatusBtns(p) {
+  const nexts = NEXT[p.status] || [];
+  if (!nexts.length) return '<p style="color:#8e8e93;font-size:13px;text-align:center">สิ้นสุดกระบวนการ</p>';
+  return `<div class="sbtn-grid">${nexts.map(s => {
+    const g = STATUS[s]?.group || "gray";
+    return `<button class="sbtn cg-${g}" onclick="tryChangeStatus('${p.id}','${s}')">${STATUS[s]?.label || s}</button>`;
+  }).join("")}</div>`;
+}
+
+async function loadDocs(projectID) {
+  const card = document.getElementById("docsCard");
+  if (!card) return;
   try {
-    const res = await fetch(`${API}/api/v1/projects/${id}/status`, {
-      method: "PUT",
-      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+    const res = await fetch(`${API}/api/v1/projects/${projectID}/documents`, {
+      headers: { Authorization: "Bearer " + token },
     });
-    if (!res.ok) throw new Error("failed");
-
-    const p = projects.find(x => x.id === id);
-    if (p) p.status = status;
-
-    btn.closest(".status-grid").querySelectorAll(".s-btn").forEach(b => b.classList.remove("on"));
-    btn.classList.add("on");
-
-    const badge = document.querySelector(".detail-card .badge");
-    if (badge) { badge.className = `badge b-${status}`; badge.textContent = STATUS[status]?.label || status; }
-
-    toast("อัปเดตสถานะสำเร็จ ✓");
-    renderPipeline();
-    renderProjectsList();
-  } catch(e) {
-    toast("อัปเดตไม่สำเร็จ");
+    if (!res.ok) throw new Error();
+    const docs = await res.json();
+    if (!docs.length) {
+      card.innerHTML = emptyH("📎","ยังไม่มีเอกสาร");
+    } else {
+      card.innerHTML = docs.map(d => `
+        <div class="doc-row">
+          <div class="doc-icon">📄</div>
+          <div class="doc-info">
+            <div class="doc-type">${esc(d.doc_type || "เอกสาร")}</div>
+            <div class="doc-date">${fmtDate(d.created_at)}</div>
+          </div>
+          <a class="doc-link" href="${esc(d.file_url)}" target="_blank">ดู ›</a>
+        </div>`).join("");
+    }
+  } catch {
+    card.innerHTML = emptyH("⚠️","โหลดเอกสารไม่สำเร็จ");
   }
 }
 
-/* ── Navigation ── */
+/* ─── Status change ─── */
+let _pendingStatus = "";
+let _pendingProjectID = "";
+
+function tryChangeStatus(projectID, newStatus) {
+  _pendingStatus    = newStatus;
+  _pendingProjectID = projectID;
+
+  if (NEEDS_DOC.has(newStatus)) {
+    openDocOverlay(newStatus);
+  } else if (newStatus === "reject") {
+    openRejectOverlay();
+  } else {
+    doChangeStatus(projectID, newStatus, "", "");
+  }
+}
+
+async function doChangeStatus(projectID, status, statusNote, rejectReason) {
+  try {
+    const res = await fetch(`${API}/api/v1/projects/${projectID}/status`, {
+      method: "PUT",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ status, status_note: statusNote, reject_reason: rejectReason }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || "เปลี่ยนสถานะไม่สำเร็จ"); return; }
+
+    const p = projects.find(x => x.id === projectID);
+    if (p) {
+      p.status        = status;
+      p.status_note   = statusNote;
+      p.reject_reason = rejectReason;
+    }
+    toast("อัปเดตสถานะสำเร็จ ✓");
+    renderPipeline();
+    renderProjList();
+    if (p) {
+      document.getElementById("detailContent").innerHTML = buildDetailInfo(p) +
+        `<div class="sec" style="margin-bottom:7px">เอกสาร</div>
+         <div class="dcard" id="docsCard"><div class="spin-wrap"><div class="spinner"></div></div></div>
+         <div class="sec" style="margin-bottom:7px">เปลี่ยนสถานะ</div>
+         <div class="dcard" style="padding:14px">${buildStatusBtns(p)}</div>`;
+      loadDocs(projectID);
+    }
+  } catch { toast("เปลี่ยนสถานะไม่สำเร็จ"); }
+}
+
+/* ─── Overlay: doc upload ─── */
+let _selectedFile = null;
+
+function openDocOverlay(newStatus) {
+  _selectedFile = null;
+  document.getElementById("ov-title").textContent = "แนบเอกสาร";
+  document.getElementById("ov-sub").textContent =
+    `กรุณาแนบเอกสารก่อนเปลี่ยนสถานะเป็น "${STATUS[newStatus]?.label}"`;
+  document.getElementById("ov-body").innerHTML = `
+    <div class="ov-section">
+      <div class="ov-label">ประเภทเอกสาร</div>
+      <select class="ov-input" id="ov-doctype">
+        <option value="">-- เลือกประเภท --</option>
+        <option>ใบเสนอราคา</option>
+        <option>ร่าง TOR</option>
+        <option>สัญญาจัดซื้อจัดจ้าง</option>
+        <option>เอกสารปิดงาน</option>
+        <option>ใบส่งมอบสินทรัพย์</option>
+        <option>อื่น ๆ</option>
+      </select>
+    </div>
+    <div class="ov-section">
+      <div class="ov-label">ไฟล์เอกสาร</div>
+      <div class="file-trigger" id="file-trigger" onclick="document.getElementById('file-input').click()">
+        <div class="file-trigger-icon">📎</div>
+        <div id="file-trigger-text" class="file-trigger-text">แตะเพื่อเลือกไฟล์</div>
+      </div>
+    </div>`;
+  document.getElementById("ov-confirm").textContent = "แนบและเปลี่ยนสถานะ";
+  document.getElementById("file-input").value = "";
+  document.getElementById("file-input").onchange = onFileChosen;
+  document.getElementById("overlay").classList.add("on");
+}
+
+function onFileChosen(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  _selectedFile = file;
+  const trigger = document.getElementById("file-trigger");
+  trigger.classList.add("has-file");
+  document.getElementById("file-trigger-text").className = "file-trigger-name";
+  document.getElementById("file-trigger-text").textContent = file.name;
+}
+
+/* ─── Overlay: reject reason ─── */
+function openRejectOverlay() {
+  document.getElementById("ov-title").textContent = "ระบุเหตุผล Reject";
+  document.getElementById("ov-sub").textContent   = "กรุณาระบุเหตุผลก่อนยืนยัน Reject";
+  document.getElementById("ov-body").innerHTML    =
+    `<div class="ov-section">
+       <textarea class="ov-input" id="ov-reason" placeholder="เหตุผลที่ปฏิเสธ..."></textarea>
+     </div>`;
+  document.getElementById("ov-confirm").textContent = "ยืนยัน Reject";
+  document.getElementById("overlay").classList.add("on");
+}
+
+/* ─── Overlay confirm ─── */
+async function confirmOverlay() {
+  closeOverlay();
+
+  if (_pendingStatus === "reject") {
+    const reason = document.getElementById("ov-reason")?.value.trim() || "";
+    if (!reason) { toast("กรุณาระบุเหตุผลที่ปฏิเสธ"); return; }
+    await doChangeStatus(_pendingProjectID, "reject", "", reason);
+    return;
+  }
+
+  if (NEEDS_DOC.has(_pendingStatus)) {
+    if (!_selectedFile) { toast("กรุณาแนบเอกสารก่อนเปลี่ยนสถานะ"); return; }
+    const docType = document.getElementById("ov-doctype")?.value || "";
+
+    const fd = new FormData();
+    fd.append("project_id", _pendingProjectID);
+    fd.append("doc_type",   docType);
+    fd.append("file",       _selectedFile);
+
+    try {
+      const up = await fetch(API + "/api/v1/documents", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token },
+        body: fd,
+      });
+      if (!up.ok) { const e = await up.json(); throw new Error(e.error); }
+    } catch(e) {
+      toast("อัปโหลดไม่สำเร็จ: " + (e.message || "error"));
+      return;
+    }
+    await doChangeStatus(_pendingProjectID, _pendingStatus, "", "");
+    return;
+  }
+}
+
+function closeOverlay() { document.getElementById("overlay").classList.remove("on"); }
+function ovClickOutside(e) { if (e.target === document.getElementById("overlay")) closeOverlay(); }
+
+/* ─── Navigation ─── */
 function showTab(tab, resetList) {
-  if (resetList !== false) renderProjectsList();
+  if (resetList !== false) renderProjList();
   prevTab = curTab;
   curTab  = tab;
-  document.querySelectorAll(".tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.tab === tab);
-  });
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === tab));
   activateScreen(tab);
 }
 
 function activateScreen(name) {
-  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
-  const el = document.getElementById("screen-" + name);
-  if (el) el.classList.add("active");
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  document.getElementById("screen-" + name)?.classList.add("on");
 }
 
-function goBack() {
-  showTab(prevTab, false);
-}
+function goBack() { showTab(prevTab, false); }
 
-/* ── Helpers ── */
-function emptyHTML(icon, text, style) {
+/* ─── Helpers ─── */
+function emptyH(icon, text, style) {
   return `<div class="empty"${style ? ` style="${style}"` : ""}><div class="empty-icon">${icon}</div><div class="empty-text">${text}</div></div>`;
 }
 
 function toast(msg) {
   const el = document.getElementById("toast");
   el.textContent = msg;
-  el.classList.add("show");
+  el.classList.add("on");
   clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.remove("show"), 2500);
+  el._t = setTimeout(() => el.classList.remove("on"), 2600);
 }
 
 function fmtDate(iso) {
-  if (!iso) return '-';
-  return new Date(iso).toLocaleDateString('th-TH', { year:'numeric', month:'short', day:'numeric' });
+  if (!iso) return "-";
+  return new Date(iso).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" });
 }
 
 function esc(s) {
-  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  return String(s || "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 init();

@@ -20,6 +20,7 @@ func main() {
 	config.InitDB()
 
 	r := gin.Default()
+	r.MaxMultipartMemory = 8 << 20 // 8 MB max for file uploads
 
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -49,6 +50,7 @@ func main() {
 		api.POST("/projects", handlers.CreateProject)
 		api.GET("/projects/:id", handlers.GetProject)
 		api.PUT("/projects/:id/status", handlers.UpdateProjectStatus)
+		api.GET("/projects/:id/documents", handlers.GetProjectDocuments)
 
 		api.GET("/companies", handlers.GetCompanies)
 		api.POST("/companies", handlers.CreateCompany)
