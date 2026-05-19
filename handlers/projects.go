@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"vizzel-backend/config"
-	"vizzel-backend/middleware"
 	"vizzel-backend/models"
 )
 
@@ -18,7 +17,7 @@ func CreateProject(c *gin.Context) {
 		return
 	}
 
-	lineUserID := middleware.GetLineUserID(c)
+	lineUserID := c.GetString("line_id")
 
 	project := models.Project{
 		CompanyID:   req.CompanyID,
