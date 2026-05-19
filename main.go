@@ -32,6 +32,8 @@ return
 c.Next()
 })
 
+r.Static("/liff", "./liff")
+
 r.GET("/health", func(c *gin.Context) {
 c.JSON(200, gin.H{"service": "vizzel-backend", "status": "ok"})
 })
