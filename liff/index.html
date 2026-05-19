@@ -91,7 +91,7 @@ async function loadProjects() {
     const res = await fetch(API + "/api/v1/projects", {
       headers: { "Authorization": "Bearer " + token }
     });
-    const projects = await res.json();
+    const { data: projects } = await res.json();
     const list = document.getElementById("projectList");
     if (!projects || projects.length === 0) {
       list.innerHTML = '<div class="loading">ยังไม่มีโครงการ</div>';
@@ -99,10 +99,10 @@ async function loadProjects() {
     }
     list.innerHTML = projects.map(p => `
       <div class="project-item">
-        <div class="name">${p.agency_name || '-'}</div>
-        <div class="sub">${p.region || ''} · ${p.status || 'pending'}</div>
+        <div class="name">${p.name || '-'}</div>
+        <div class="sub">${p.description || ''} · ${p.status || 'active'}</div>
       </div>`).join("");
-  } catch(e) { document.getElementById("projectList").innerHTML = '<div class="loading">โหลดไม่สำเร็จ</div>'; }
+  } catch(e) { document.getElementById("projectList").innerHTML = '<div class="loading">โหลดไม่สำเร็จ: ' + e.message + '</div>'; }
 }
 
 init();
