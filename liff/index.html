@@ -9,11 +9,13 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f2f2f7; color: #1c1c1e; -webkit-tap-highlight-color: transparent; }
 
-    /* ── Login ── */
-    #loginScreen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 20px; text-align: center; }
+    /* ── Splash ── */
+    #splash { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 20px; text-align: center; }
     .logo-icon { font-size: 64px; margin-bottom: 20px; }
-    .login-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
-    .login-sub { color: #8e8e93; margin-bottom: 40px; font-size: 15px; line-height: 1.5; }
+    .splash-title { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+    .splash-sub { color: #8e8e93; font-size: 15px; line-height: 1.5; margin-bottom: 32px; }
+    .splash-spinner { width: 36px; height: 36px; border: 3px solid #e5e5ea; border-top-color: #06C755; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    .splash-err { color: #FF3B30; font-size: 14px; margin-top: 16px; }
 
     /* ── App Shell ── */
     #app { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -116,12 +118,12 @@
 </head>
 <body>
 
-<!-- ── Login ── -->
-<div id="loginScreen">
+<!-- ── Splash / Loading ── -->
+<div id="splash">
   <div class="logo-icon">📊</div>
-  <h2 class="login-title">Vizzel Sales</h2>
-  <p class="login-sub">ระบบจัดการลูกค้า<br>หน่วยงานราชการ</p>
-  <button class="btn btn-green" style="max-width:280px" onclick="doLogin()">เข้าสู่ระบบด้วย LINE</button>
+  <h2 class="splash-title">Vizzel Sales</h2>
+  <p class="splash-sub">ระบบจัดการลูกค้า<br>หน่วยงานราชการ</p>
+  <div class="splash-spinner"></div>
 </div>
 
 <!-- ── App ── -->
@@ -227,22 +229,27 @@ const STATUS_KEYS = ["prospect","trial","negotiation","won","lost"];
 async function init() {
   try {
     await liff.init({ liffId: LIFF_ID });
-    if (!liff.isLoggedIn()) { showLogin(); return; }
+    if (!liff.isLoggedIn()) {
+      // liff.login() navigates the page away to LINE auth.
+      // When LINE redirects back, liff.init() processes the callback
+      // and isLoggedIn() returns true — so this branch never runs twice.
+      liff.login();
+      return;
+    }
     await loginWithLine();
-  } catch(e) { showLogin(); }
+  } catch(e) {
+    const splash = document.getElementById("splash");
+    const err = document.createElement("p");
+    err.className = "splash-err";
+    err.textContent = "เกิดข้อผิดพลาด: " + e.message;
+    splash.appendChild(err);
+  }
 }
-
-function showLogin() {
-  document.getElementById("loginScreen").style.display = "flex";
-}
-
-function doLogin() { liff.login(); }
 
 async function loginWithLine() {
-  const [accessToken, profile] = await Promise.all([
-    liff.getAccessToken(),
-    liff.getProfile(),
-  ]);
+  const accessToken = liff.getAccessToken();
+  const profile     = await liff.getProfile();
+
   document.getElementById("userName").textContent = profile.displayName;
   document.getElementById("userPic").src = profile.pictureUrl || "";
 
@@ -251,12 +258,12 @@ async function loginWithLine() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ access_token: accessToken }),
   });
-  if (!res.ok) throw new Error("auth failed");
+  if (!res.ok) throw new Error("auth failed " + res.status);
   const data = await res.json();
   token = data.token;
 
-  document.getElementById("loginScreen").style.display = "none";
-  document.getElementById("app").style.display        = "flex";
+  document.getElementById("splash").style.display = "none";
+  document.getElementById("app").style.display    = "flex";
   loadProjects();
 }
 
