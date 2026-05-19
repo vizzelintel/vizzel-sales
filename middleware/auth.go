@@ -43,3 +43,11 @@ c.Set("name", claims["name"])
 c.Next()
 }
 }
+
+func GetLineUserID(c *gin.Context) string {
+id, _ := c.Get("line_id")
+if str, ok := id.(string); ok {
+return str
+}
+return ""
+}
