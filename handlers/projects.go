@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +14,9 @@ import (
 	"vizzel-backend/config"
 	"vizzel-backend/models"
 )
+
+// Rejects abbreviated agency names containing common short-forms or bare dots.
+var abbrevPattern = regexp.MustCompile(`อบต\.?|อบจ\.?|ทต\.?|ทน\.?|ทม\.?|\.$|^\.|\.{2,}`)
 
 var validStatuses = map[string]bool{
 	"registrator": true,
@@ -87,8 +91,38 @@ func CreateProject(c *gin.Context) {
 		return
 	}
 
+	// Validate agency name: must be non-empty, no abbreviations or bare dots.
+	name := strings.TrimSpace(req.AgencyName)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกชื่อหน่วยงาน"})
+		return
+	}
+	if abbrevPattern.MatchString(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาใส่ชื่อหน่วยงานแบบเต็ม ไม่ใช้ตัวย่อหรือจุด (.) ในชื่อ"})
+		return
+	}
+	req.AgencyName = name
+
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
+
+	// Duplicate check: reject if agency_name already exists (case/space-insensitive).
+	var existingID string
+	dupErr := config.DB.QueryRow(context.Background(),
+		`SELECT id::text FROM projects WHERE LOWER(TRIM(agency_name)) = LOWER(TRIM($1)) LIMIT 1`,
+		name,
+	).Scan(&existingID)
+	if dupErr == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":               "หน่วยงานนี้ถูกลงทะเบียนไปแล้ว",
+			"existing_project_id": existingID,
+		})
+		return
+	}
+	if !errors.Is(dupErr, pgx.ErrNoRows) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check duplicate"})
+		return
+	}
 
 	now := time.Now().UTC()
 	var project models.Project
@@ -121,17 +155,26 @@ func CreateProject(c *gin.Context) {
 
 func GetProjects(c *gin.Context) {
 	companyID := c.Query("company_id")
+	search    := strings.TrimSpace(c.Query("search"))
 
 	base := `SELECT ` + projectCols + ` FROM projects`
-	var query string
+	var conditions []string
 	var args []any
 
 	if companyID != "" {
-		query = base + ` WHERE company_id = $1::uuid ORDER BY created_at DESC`
-		args = []any{companyID}
-	} else {
-		query = base + ` ORDER BY created_at DESC`
+		args = append(args, companyID)
+		conditions = append(conditions, fmt.Sprintf("company_id = $%d::uuid", len(args)))
 	}
+	if search != "" {
+		args = append(args, "%"+strings.ToLower(search)+"%")
+		conditions = append(conditions, fmt.Sprintf("LOWER(agency_name) LIKE $%d", len(args)))
+	}
+
+	query := base
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC"
 
 	rows, err := config.DB.Query(context.Background(), query, args...)
 	if err != nil {
