@@ -101,6 +101,7 @@ func CreateProject(c *gin.Context) {
 		&project.ContactPerson, &project.ContactPosition, &project.ContactPhone,
 		&project.Status, &project.StatusNote, &project.RejectReason,
 		&project.CreatedBy, &project.CreatedAt,
+		&project.AppointmentDate, &project.AppointmentNote, &project.CalendarEventID,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
