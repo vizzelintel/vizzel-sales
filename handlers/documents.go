@@ -150,9 +150,7 @@ func uploadToStorage(projectID, filename, contentType string, r io.Reader) (stri
 		return "", fmt.Errorf("env vars not set: %s", strings.Join(missing, ", "))
 	}
 
-	ext := filepath.Ext(filename)
-	objectPath := fmt.Sprintf("%s/%d%s", projectID, time.Now().UnixNano(), ext)
-	uploadURL := fmt.Sprintf("%s/storage/v1/object/project-docs/%s", supabaseURL, objectPath)
+	uploadURL := fmt.Sprintf("%s/storage/v1/object/project-docs/%s", supabaseURL, filename)
 
 	req, err := http.NewRequest(http.MethodPost, uploadURL, r)
 	if err != nil {
@@ -160,7 +158,7 @@ func uploadToStorage(projectID, filename, contentType string, r io.Reader) (stri
 	}
 	req.Header.Set("Authorization", "Bearer "+serviceKey)
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("x-upsert", "true") // allow overwrite if object already exists
+	req.Header.Set("x-upsert", "true")
 
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
@@ -173,5 +171,5 @@ func uploadToStorage(projectID, filename, contentType string, r io.Reader) (stri
 		return "", fmt.Errorf("storage %d: %s", resp.StatusCode, body)
 	}
 
-	return fmt.Sprintf("%s/storage/v1/object/public/project-docs/%s", supabaseURL, objectPath), nil
+	return fmt.Sprintf("%s/storage/v1/object/public/project-docs/%s", supabaseURL, filename), nil
 }
