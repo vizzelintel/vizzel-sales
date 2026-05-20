@@ -51,7 +51,14 @@ func main() {
 	api := r.Group("/api/v1")
 	api.Use(middleware.JWTAuth())
 	{
-		api.GET("/users/me", handlers.GetMe)
+		api.GET("/users/me", handlers.GetMe) // legacy path kept
+		api.GET("/me", handlers.GetMe)
+		api.PUT("/me", handlers.UpdateMe)
+
+		api.GET("/company", handlers.GetCompany)
+		api.PUT("/company", handlers.UpdateCompany)
+		api.GET("/company/members", handlers.GetCompanyMembers)
+		api.PUT("/company/members/:id/role", handlers.UpdateMemberRole)
 
 		api.GET("/projects", handlers.GetProjects)
 		api.POST("/projects", handlers.CreateProject)
