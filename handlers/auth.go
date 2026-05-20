@@ -15,6 +15,7 @@ import (
 
 type LineAuthRequest struct {
 	AccessToken string `json:"access_token" binding:"required"`
+	Email       string `json:"email"` // optional — populated when LINE channel has email scope
 }
 
 type LineProfile struct {
@@ -36,14 +37,17 @@ func LineLogin(c *gin.Context) {
 		return
 	}
 
-	// Upsert user and get back the DB UUID so we can embed it in the token.
+	// Upsert user; persist email when provided, but don't clobber an existing
+	// email with an empty string (COALESCE keeps the stored value in that case).
 	var userID string
 	err = config.DB.QueryRow(context.Background(),
-		`INSERT INTO users (line_id, full_name)
-		 VALUES ($1, $2)
-		 ON CONFLICT (line_id) DO UPDATE SET full_name = EXCLUDED.full_name
+		`INSERT INTO users (line_id, full_name, email)
+		 VALUES ($1, $2, NULLIF($3,''))
+		 ON CONFLICT (line_id) DO UPDATE
+		     SET full_name = EXCLUDED.full_name,
+		         email     = COALESCE(EXCLUDED.email, users.email)
 		 RETURNING id`,
-		profile.UserID, profile.DisplayName,
+		profile.UserID, profile.DisplayName, req.Email,
 	).Scan(&userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error: " + err.Error()})
@@ -70,6 +74,7 @@ func LineLogin(c *gin.Context) {
 			"line_id": profile.UserID,
 			"name":    profile.DisplayName,
 			"picture": profile.PictureURL,
+			"email":   req.Email,
 		},
 	})
 }

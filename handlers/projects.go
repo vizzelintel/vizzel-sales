@@ -229,10 +229,24 @@ func UpdateProjectStatus(c *gin.Context) {
 			 FROM projects WHERE id = $1::uuid`, id,
 		).Scan(&agencyName, &contactPerson, &contactPhone)
 
+		// Look up the acting user's email so they receive a Google Calendar invite.
+		var userEmail string
+		lineID, _ := c.Get("line_id")
+		if lineIDStr, _ := lineID.(string); lineIDStr != "" {
+			_ = config.DB.QueryRow(context.Background(),
+				`SELECT COALESCE(email,'') FROM users WHERE line_id = $1`, lineIDStr,
+			).Scan(&userEmail)
+		}
+
+		attendees := []string{}
+		if userEmail != "" {
+			attendees = []string{userEmail}
+		}
+
 		title := fmt.Sprintf("[Vizzel] %s - %s", statusLabel, agencyName)
 		desc := calendarDescription(contactPerson, contactPhone, req.AppointmentNote)
 
-		if evID, err := CreateCalendarEvent(title, desc, req.AppointmentDate); err == nil {
+		if evID, err := CreateCalendarEvent(title, desc, req.AppointmentDate, attendees); err == nil {
 			calendarEventID = evID
 			calendarOK = true
 		}

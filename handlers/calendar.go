@@ -26,8 +26,10 @@ type serviceAccountKey struct {
 
 // CreateCalendarEvent creates a 1-hour Google Calendar event via the REST API
 // using a Service Account credential from GOOGLE_CALENDAR_CREDENTIALS_JSON.
+// attendees is a slice of email addresses to invite; Google sends each one an
+// email notification automatically (sendUpdates=all).
 // Returns the created event ID, or an error (caller decides whether to surface it).
-func CreateCalendarEvent(title, description, datetimeRFC3339 string) (string, error) {
+func CreateCalendarEvent(title, description, datetimeRFC3339 string, attendees []string) (string, error) {
 	credsJSON := os.Getenv("GOOGLE_CALENDAR_CREDENTIALS_JSON")
 	if credsJSON == "" {
 		return "", fmt.Errorf("GOOGLE_CALENDAR_CREDENTIALS_JSON not configured")
@@ -60,7 +62,7 @@ func CreateCalendarEvent(title, description, datetimeRFC3339 string) (string, er
 		return "", fmt.Errorf("parse datetime %q: %w", datetimeRFC3339, err)
 	}
 
-	eventID, err := insertEvent(accessToken, calendarID, title, description, start, start.Add(time.Hour))
+	eventID, err := insertEvent(accessToken, calendarID, title, description, start, start.Add(time.Hour), attendees)
 	if err != nil {
 		return "", fmt.Errorf("insert event: %w", err)
 	}
@@ -140,16 +142,29 @@ func googleAccessToken(clientEmail, tokenURI string, key *rsa.PrivateKey) (strin
 }
 
 // insertEvent POSTs a Calendar event and returns the event ID.
-func insertEvent(accessToken, calendarID, title, description string, start, end time.Time) (string, error) {
-	payload, _ := json.Marshal(map[string]any{
+// When attendees are provided, sendUpdates=all causes Google to email each one.
+func insertEvent(accessToken, calendarID, title, description string, start, end time.Time, attendees []string) (string, error) {
+	event := map[string]any{
 		"summary":     title,
 		"description": description,
 		"start":       map[string]string{"dateTime": start.Format(time.RFC3339), "timeZone": "Asia/Bangkok"},
 		"end":         map[string]string{"dateTime": end.Format(time.RFC3339), "timeZone": "Asia/Bangkok"},
-	})
+	}
+	if len(attendees) > 0 {
+		att := make([]map[string]string, 0, len(attendees))
+		for _, email := range attendees {
+			if email != "" {
+				att = append(att, map[string]string{"email": email})
+			}
+		}
+		if len(att) > 0 {
+			event["attendees"] = att
+		}
+	}
+	payload, _ := json.Marshal(event)
 
 	apiURL := fmt.Sprintf(
-		"https://www.googleapis.com/calendar/v3/calendars/%s/events",
+		"https://www.googleapis.com/calendar/v3/calendars/%s/events?sendUpdates=all",
 		url.PathEscape(calendarID),
 	)
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(string(payload)))

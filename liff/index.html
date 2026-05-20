@@ -353,7 +353,7 @@ const APPT_STATUSES = new Set(["present","demo","site_survey"]);
 async function init() {
   try {
     await liff.init({ liffId: LIFF_ID });
-    if (!liff.isLoggedIn()) { liff.login(); return; }
+    if (!liff.isLoggedIn()) { liff.login({ scope: "profile openid email" }); return; }
     await loginWithLine();
   } catch(e) {
     const el = document.createElement("p");
@@ -366,13 +366,16 @@ async function init() {
 async function loginWithLine() {
   const accessToken = liff.getAccessToken();
   const profile     = await liff.getProfile();
+  // Email from OIDC ID token — present only when "email" scope is granted on the LINE channel
+  const email = liff.getDecodedIDToken()?.email || "";
+
   document.getElementById("uName").textContent = profile.displayName;
   document.getElementById("uPic").src          = profile.pictureUrl || "";
 
   const res = await fetch(API + "/api/v1/auth/line", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ access_token: accessToken }),
+    body: JSON.stringify({ access_token: accessToken, email }),
   });
   if (!res.ok) throw new Error("auth failed " + res.status);
   token = (await res.json()).token;
