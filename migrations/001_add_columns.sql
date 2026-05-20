@@ -11,3 +11,8 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS status_note      text;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_type    text;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_url    text;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS uploaded_by uuid REFERENCES users(id);
+
+-- Projects: Google Calendar integration
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS appointment_date  timestamptz;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS appointment_note  text;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS calendar_event_id text;

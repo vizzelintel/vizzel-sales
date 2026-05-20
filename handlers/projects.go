@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -34,6 +35,13 @@ var statusRequiresDocs = map[string]bool{
 	"closing":   true,
 }
 
+// Appointment statuses trigger a Google Calendar event when appointment_date is provided.
+var appointmentStatusLabel = map[string]string{
+	"present":     "นัดหมาย Present",
+	"demo":        "นัดหมาย Demo",
+	"site_survey": "นัดหมาย Site Survey",
+}
+
 const projectCols = `id,
 	COALESCE(company_id::text,''),
 	agency_name,
@@ -46,7 +54,10 @@ const projectCols = `id,
 	COALESCE(status_note,''),
 	COALESCE(reject_reason,''),
 	COALESCE(created_by::text,''),
-	created_at`
+	created_at,
+	COALESCE(appointment_date::text,''),
+	COALESCE(appointment_note,''),
+	COALESCE(calendar_event_id,'')`
 
 func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 	var p models.Project
@@ -56,6 +67,7 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 		&p.ContactPerson, &p.ContactPosition, &p.ContactPhone,
 		&p.Status, &p.StatusNote, &p.RejectReason,
 		&p.CreatedBy, &p.CreatedAt,
+		&p.AppointmentDate, &p.AppointmentNote, &p.CalendarEventID,
 	)
 	return p, err
 }
@@ -181,13 +193,37 @@ func UpdateProjectStatus(c *gin.Context) {
 		}
 	}
 
+	// Google Calendar: fire for appointment statuses when appointment_date is provided.
+	calendarEventID := ""
+	calendarOK := false
+	if statusLabel, isAppt := appointmentStatusLabel[req.Status]; isAppt && req.AppointmentDate != "" {
+		var agencyName, contactPerson, contactPhone string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT agency_name, COALESCE(contact_person,''), COALESCE(contact_phone,'')
+			 FROM projects WHERE id = $1::uuid`, id,
+		).Scan(&agencyName, &contactPerson, &contactPhone)
+
+		title := fmt.Sprintf("[Vizzel] %s - %s", statusLabel, agencyName)
+		desc := calendarDescription(contactPerson, contactPhone, req.AppointmentNote)
+
+		if evID, err := CreateCalendarEvent(title, desc, req.AppointmentDate); err == nil {
+			calendarEventID = evID
+			calendarOK = true
+		}
+	}
+
 	tag, err := config.DB.Exec(context.Background(),
 		`UPDATE projects
-		 SET status        = $1,
-		     status_note   = NULLIF($2, ''),
-		     reject_reason = NULLIF($3, '')
-		 WHERE id = $4::uuid`,
-		req.Status, req.StatusNote, req.RejectReason, id,
+		 SET status            = $1,
+		     status_note       = NULLIF($2, ''),
+		     reject_reason     = NULLIF($3, ''),
+		     appointment_date  = NULLIF($4, '')::timestamptz,
+		     appointment_note  = NULLIF($5, ''),
+		     calendar_event_id = NULLIF($6, '')
+		 WHERE id = $7::uuid`,
+		req.Status, req.StatusNote, req.RejectReason,
+		req.AppointmentDate, req.AppointmentNote, calendarEventID,
+		id,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
@@ -198,5 +234,24 @@ func UpdateProjectStatus(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"id": id, "status": req.Status})
+	c.JSON(http.StatusOK, gin.H{
+		"id":                id,
+		"status":            req.Status,
+		"calendar_event_id": calendarEventID,
+		"calendar_ok":       calendarOK,
+	})
+}
+
+func calendarDescription(contactPerson, contactPhone, note string) string {
+	var parts []string
+	if contactPerson != "" {
+		parts = append(parts, "ผู้ติดต่อ: "+contactPerson)
+	}
+	if contactPhone != "" {
+		parts = append(parts, "โทรศัพท์: "+contactPhone)
+	}
+	if note != "" {
+		parts = append(parts, "\n"+note)
+	}
+	return strings.Join(parts, "\n")
 }

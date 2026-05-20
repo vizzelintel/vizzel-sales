@@ -305,6 +305,9 @@ const NEXT = {
 /* Statuses that require >= 1 doc before the backend will accept the transition */
 const NEEDS_DOC = new Set(["quotation","contract","closing"]);
 
+/* Statuses that trigger a Google Calendar appointment */
+const APPT_STATUSES = new Set(["present","demo","site_survey"]);
+
 /* ─── Init ─── */
 async function init() {
   try {
@@ -518,7 +521,9 @@ function tryChangeStatus(projectID, newStatus) {
   _pendingStatus    = newStatus;
   _pendingProjectID = projectID;
 
-  if (NEEDS_DOC.has(newStatus)) {
+  if (APPT_STATUSES.has(newStatus)) {
+    openApptOverlay(newStatus);
+  } else if (NEEDS_DOC.has(newStatus)) {
     openDocOverlay(newStatus);
   } else if (newStatus === "reject") {
     openRejectOverlay();
@@ -527,23 +532,42 @@ function tryChangeStatus(projectID, newStatus) {
   }
 }
 
-async function doChangeStatus(projectID, status, statusNote, rejectReason) {
+async function doChangeStatus(projectID, status, statusNote, rejectReason, appointmentDate, appointmentNote) {
   try {
+    const body = {
+      status,
+      status_note:      statusNote      || "",
+      reject_reason:    rejectReason    || "",
+      appointment_date: appointmentDate || "",
+      appointment_note: appointmentNote || "",
+    };
     const res = await fetch(`${API}/api/v1/projects/${projectID}/status`, {
       method: "PUT",
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify({ status, status_note: statusNote, reject_reason: rejectReason }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) { toast(data.error || "เปลี่ยนสถานะไม่สำเร็จ"); return; }
 
     const p = projects.find(x => x.id === projectID);
     if (p) {
-      p.status        = status;
-      p.status_note   = statusNote;
-      p.reject_reason = rejectReason;
+      p.status           = status;
+      p.status_note      = statusNote      || "";
+      p.reject_reason    = rejectReason    || "";
+      p.appointment_date = appointmentDate || "";
+      p.appointment_note = appointmentNote || "";
+      p.calendar_event_id = data.calendar_event_id || "";
     }
-    toast("อัปเดตสถานะสำเร็จ ✓");
+
+    // Toast: calendar outcome
+    if (APPT_STATUSES.has(status) && appointmentDate) {
+      toast(data.calendar_ok
+        ? "✅ บันทึกนัดหมายในปฏิทินแล้ว"
+        : "⚠️ เปลี่ยนสถานะแล้ว แต่ไม่สามารถบันทึกปฏิทินได้");
+    } else {
+      toast("อัปเดตสถานะสำเร็จ ✓");
+    }
+
     renderPipeline();
     renderProjList();
     if (p) {
@@ -555,6 +579,23 @@ async function doChangeStatus(projectID, status, statusNote, rejectReason) {
       loadDocs(projectID);
     }
   } catch { toast("เปลี่ยนสถานะไม่สำเร็จ"); }
+}
+
+/* ─── Overlay: appointment ─── */
+function openApptOverlay(newStatus) {
+  document.getElementById("ov-title").textContent = STATUS[newStatus]?.label || newStatus;
+  document.getElementById("ov-sub").textContent   = "กรอกรายละเอียดนัดหมาย";
+  document.getElementById("ov-body").innerHTML    = `
+    <div class="ov-section">
+      <div class="ov-label">วันและเวลานัดหมาย *</div>
+      <input type="datetime-local" class="ov-input" id="ov-appt-date">
+    </div>
+    <div class="ov-section">
+      <div class="ov-label">บันทึกย่อ</div>
+      <textarea class="ov-input" id="ov-appt-note" placeholder="หมายเหตุเพิ่มเติม..."></textarea>
+    </div>`;
+  document.getElementById("ov-confirm").textContent = "ยืนยันนัดหมาย";
+  document.getElementById("overlay").classList.add("on");
 }
 
 /* ─── Overlay: doc upload ─── */
@@ -616,6 +657,16 @@ function openRejectOverlay() {
 /* ─── Overlay confirm ─── */
 async function confirmOverlay() {
   closeOverlay();
+
+  // Appointment statuses → send date + note, calendar created server-side
+  if (APPT_STATUSES.has(_pendingStatus)) {
+    const rawDate = document.getElementById("ov-appt-date")?.value;
+    if (!rawDate) { toast("กรุณาเลือกวันและเวลานัดหมาย"); return; }
+    const isoDate = new Date(rawDate).toISOString();
+    const note    = document.getElementById("ov-appt-note")?.value.trim() || "";
+    await doChangeStatus(_pendingProjectID, _pendingStatus, "", "", isoDate, note);
+    return;
+  }
 
   if (_pendingStatus === "reject") {
     const reason = document.getElementById("ov-reason")?.value.trim() || "";

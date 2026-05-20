@@ -35,6 +35,9 @@ type Project struct {
 	RejectReason    string    `json:"reject_reason,omitempty"`
 	CreatedBy       string    `json:"created_by,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
+	AppointmentDate string    `json:"appointment_date,omitempty"`
+	AppointmentNote string    `json:"appointment_note,omitempty"`
+	CalendarEventID string    `json:"calendar_event_id,omitempty"`
 }
 
 type Document struct {
@@ -57,9 +60,11 @@ type CreateProjectRequest struct {
 }
 
 type UpdateProjectStatusRequest struct {
-	Status       string `json:"status" binding:"required"`
-	StatusNote   string `json:"status_note"`
-	RejectReason string `json:"reject_reason"`
+	Status          string `json:"status" binding:"required"`
+	StatusNote      string `json:"status_note"`
+	RejectReason    string `json:"reject_reason"`
+	AppointmentDate string `json:"appointment_date"` // RFC3339; only for present/demo/site_survey
+	AppointmentNote string `json:"appointment_note"`
 }
 
 type CreateCompanyRequest struct {
