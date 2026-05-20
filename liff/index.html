@@ -78,6 +78,15 @@
     .finp::placeholder { color: #c7c7cc; }
     select.finp { appearance: none; -webkit-appearance: none; }
 
+    /* ── Province searchable dropdown ── */
+    #province-drop { position: fixed; background: white; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); max-height: 248px; overflow-y: auto; -webkit-overflow-scrolling: touch; z-index: 600; display: none; }
+    #province-drop.open { display: block; }
+    .pdrop-item { padding: 13px 16px; font-size: 15px; cursor: pointer; border-bottom: 1px solid #f2f2f7; color: #1c1c1e; }
+    .pdrop-item:last-child { border-bottom: none; }
+    .pdrop-item:active { background: #f5f5f5; }
+    .pdrop-item mark { background: #fef3c7; color: #1c1c1e; font-weight: 700; padding: 0 1px; border-radius: 2px; font-style: normal; }
+    .pdrop-empty { padding: 16px; font-size: 14px; color: #8e8e93; text-align: center; }
+
     /* ── Detail ── */
     .dcard { background: white; border-radius: 12px; overflow: hidden; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
     .drow  { display: flex; padding: 12px 14px; border-bottom: 1px solid #f2f2f7; }
@@ -218,7 +227,8 @@
         </div>
         <div class="frow">
           <label class="flbl">จังหวัด</label>
-          <input class="finp" id="f-region" placeholder="จังหวัด / ภูมิภาค">
+          <input class="finp" id="f-region" placeholder="พิมพ์ชื่อจังหวัด..." autocomplete="new-password"
+                 onfocus="showProvinces()" onclick="showProvinces()" oninput="filterProvinces()">
         </div>
         <div class="frow">
           <label class="flbl">ผู้ติดต่อ</label>
@@ -259,6 +269,7 @@
 </div>
 
 <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx">
+<div id="province-drop"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -742,6 +753,74 @@ function esc(s) {
     .replace(/&/g,"&amp;").replace(/</g,"&lt;")
     .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
+
+/* ─── Province picker ─── */
+const PROVINCES = [
+  "กระบี่","กรุงเทพมหานคร","กาญจนบุรี","กาฬสินธุ์","กำแพงเพชร",
+  "ขอนแก่น","จันทบุรี","ฉะเชิงเทรา","ชลบุรี","ชัยนาท",
+  "ชัยภูมิ","ชุมพร","เชียงราย","เชียงใหม่","ตรัง",
+  "ตราด","ตาก","นครนายก","นครปฐม","นครพนม",
+  "นครราชสีมา","นครศรีธรรมราช","นครสวรรค์","นนทบุรี","นราธิวาส",
+  "น่าน","บึงกาฬ","บุรีรัมย์","ปทุมธานี","ประจวบคีรีขันธ์",
+  "ปราจีนบุรี","ปัตตานี","พระนครศรีอยุธยา","พะเยา","พังงา",
+  "พัทลุง","พิจิตร","พิษณุโลก","เพชรบุรี","เพชรบูรณ์",
+  "แพร่","ภูเก็ต","มหาสารคาม","มุกดาหาร","แม่ฮ่องสอน",
+  "ยโสธร","ยะลา","ร้อยเอ็ด","ระนอง","ระยอง",
+  "ราชบุรี","ลพบุรี","ลำปาง","ลำพูน","เลย",
+  "ศรีสะเกษ","สกลนคร","สงขลา","สตูล","สมุทรปราการ",
+  "สมุทรสงคราม","สมุทรสาคร","สระแก้ว","สระบุรี","สิงห์บุรี",
+  "สุโขทัย","สุพรรณบุรี","สุราษฎร์ธานี","สุรินทร์","หนองคาย",
+  "หนองบัวลำภู","อ่างทอง","อำนาจเจริญ","อุดรธานี","อุตรดิตถ์",
+  "อุทัยธานี","อุบลราชธานี",
+];
+
+function showProvinces() {
+  filterProvinces();
+}
+
+function filterProvinces() {
+  const inp  = document.getElementById("f-region");
+  const q    = inp.value.trim();
+  const drop = document.getElementById("province-drop");
+
+  const matches = q ? PROVINCES.filter(p => p.includes(q)) : PROVINCES;
+
+  if (!matches.length) {
+    drop.innerHTML = '<div class="pdrop-empty">ไม่พบจังหวัด</div>';
+  } else {
+    const safe = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    drop.innerHTML = matches.map(p => {
+      const hl = q
+        ? p.replace(new RegExp(safe, "g"), m => `<mark>${m}</mark>`)
+        : p;
+      return `<div class="pdrop-item" data-name="${p}" onclick="selectProvince(this.dataset.name)">${hl}</div>`;
+    }).join("");
+  }
+
+  positionProvinceDrop();
+  drop.classList.add("open");
+}
+
+function positionProvinceDrop() {
+  const inp  = document.getElementById("f-region");
+  const rect = inp.getBoundingClientRect();
+  const drop = document.getElementById("province-drop");
+  drop.style.top   = rect.bottom + "px";
+  drop.style.left  = rect.left   + "px";
+  drop.style.width = rect.width  + "px";
+}
+
+function selectProvince(name) {
+  document.getElementById("f-region").value = name;
+  document.getElementById("province-drop").classList.remove("open");
+}
+
+// Close dropdown when tapping anywhere outside the input or list
+document.addEventListener("click", e => {
+  if (!e.target.closest("#f-region") && !e.target.closest("#province-drop")) {
+    document.getElementById("province-drop").classList.remove("open");
+  }
+});
 
 init();
 </script>
