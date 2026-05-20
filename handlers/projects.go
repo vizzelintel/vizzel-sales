@@ -54,7 +54,8 @@ const projectCols = `id,
 	COALESCE(appointment_date::text,''),
 	COALESCE(appointment_note,''),
 	COALESCE(calendar_event_id,''),
-	COALESCE(present_type,'')`
+	COALESCE(present_type,''),
+	COALESCE(detail_note,'')`
 
 func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 	var p models.Project
@@ -65,7 +66,7 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 		&p.Status, &p.StatusNote, &p.RejectReason,
 		&p.CreatedBy, &p.CreatedAt,
 		&p.AppointmentDate, &p.AppointmentNote, &p.CalendarEventID,
-		&p.PresentType,
+		&p.PresentType, &p.DetailNote,
 	)
 	return p, err
 }
@@ -130,6 +131,7 @@ func CreateProject(c *gin.Context) {
 		&project.Status, &project.StatusNote, &project.RejectReason,
 		&project.CreatedBy, &project.CreatedAt,
 		&project.AppointmentDate, &project.AppointmentNote, &project.CalendarEventID,
+		&project.PresentType, &project.DetailNote,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
@@ -305,6 +307,60 @@ func UpdateProjectStatus(c *gin.Context) {
 		"calendar_event_id": calendarEventID,
 		"calendar_ok":       calendarOK,
 	})
+}
+
+// UpdateProject handles PUT /api/v1/projects/:id for partial field updates
+// (currently: detail_note only). Returns 403 if the project is closed.
+func UpdateProject(c *gin.Context) {
+	id := c.Param("id")
+
+	var req models.UpdateProjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.DetailNote == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+		return
+	}
+
+	note := *req.DetailNote
+	if len([]rune(note)) > 2000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "รายละเอียดต้องไม่เกิน 2000 ตัวอักษร"})
+		return
+	}
+
+	// Fetch current status to enforce closed-project lock
+	var currentStatus string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, id,
+	).Scan(&currentStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch project"})
+		}
+		return
+	}
+	if currentStatus == "closed" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่สามารถแก้ไขได้ เนื่องจากงานปิดแล้ว"})
+		return
+	}
+
+	tag, err := config.DB.Exec(context.Background(),
+		`UPDATE projects SET detail_note = NULLIF($1,''), last_activity_at = NOW() WHERE id = $2::uuid`,
+		note, id,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"id": id, "detail_note": note})
 }
 
 func calendarDescription(contactPerson, contactPhone, note string) string {

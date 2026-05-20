@@ -39,6 +39,7 @@ type Project struct {
 	AppointmentNote string    `json:"appointment_note,omitempty"`
 	CalendarEventID string    `json:"calendar_event_id,omitempty"`
 	PresentType     string    `json:"present_type,omitempty"`
+	DetailNote      string    `json:"detail_note,omitempty"`
 }
 
 type Document struct {
@@ -70,6 +71,11 @@ type UpdateProjectStatusRequest struct {
 	AppointmentDate string `json:"appointment_date"` // RFC3339; for present/demo/site_survey
 	AppointmentNote string `json:"appointment_note"`
 	PresentType     string `json:"present_type"` // "online" or "onsite"; required when status=present
+}
+
+// UpdateProjectRequest is used by PUT /projects/:id for partial field updates.
+type UpdateProjectRequest struct {
+	DetailNote *string `json:"detail_note"`
 }
 
 type CreateCompanyRequest struct {

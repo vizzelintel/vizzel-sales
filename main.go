@@ -56,6 +56,7 @@ func main() {
 		api.GET("/projects", handlers.GetProjects)
 		api.POST("/projects", handlers.CreateProject)
 		api.GET("/projects/:id", handlers.GetProject)
+		api.PUT("/projects/:id", handlers.UpdateProject)
 		api.PUT("/projects/:id/status", handlers.UpdateProjectStatus)
 		api.GET("/projects/:id/documents", handlers.GetProjectDocuments)
 
