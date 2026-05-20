@@ -39,25 +39,27 @@ func LineLogin(c *gin.Context) {
 
 	// Upsert user; persist email when provided, but don't clobber an existing
 	// email with an empty string (COALESCE keeps the stored value in that case).
-	var userID string
+	// RETURNING also fetches role so the JWT always reflects the current DB value.
+	var userID, userRole string
 	err = config.DB.QueryRow(context.Background(),
 		`INSERT INTO users (line_id, full_name, email)
 		 VALUES ($1, $2, NULLIF($3,''))
 		 ON CONFLICT (line_id) DO UPDATE
 		     SET full_name = EXCLUDED.full_name,
 		         email     = COALESCE(EXCLUDED.email, users.email)
-		 RETURNING id`,
+		 RETURNING id, COALESCE(role,'')`,
 		profile.UserID, profile.DisplayName, req.Email,
-	).Scan(&userID)
+	).Scan(&userID, &userRole)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error: " + err.Error()})
 		return
 	}
 
 	claims := jwt.MapClaims{
-		"sub":  profile.UserID, // LINE user ID
-		"uid":  userID,         // DB UUID — used as created_by in project records
+		"sub":  profile.UserID,    // LINE user ID
+		"uid":  userID,            // DB UUID — used as created_by in project records
 		"name": profile.DisplayName,
+		"role": userRole,          // from DB, not hardcoded
 		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -75,6 +77,7 @@ func LineLogin(c *gin.Context) {
 			"name":    profile.DisplayName,
 			"picture": profile.PictureURL,
 			"email":   req.Email,
+			"role":    userRole,
 		},
 	})
 }
