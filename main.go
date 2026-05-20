@@ -22,8 +22,17 @@ func main() {
 	r := gin.Default()
 	r.MaxMultipartMemory = 8 << 20 // 8 MB max for file uploads
 
+	allowedOrigins := map[string]bool{
+		"https://vizzelintel.github.io":                    true,
+		"https://vizzel-sales-production.up.railway.app": true,
+	}
 	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+		} else {
+			c.Header("Access-Control-Allow-Origin", "*")
+		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		if c.Request.Method == http.MethodOptions {
@@ -32,8 +41,6 @@ func main() {
 		}
 		c.Next()
 	})
-
-	r.Static("/liff", "./liff")
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"service": "vizzel-backend", "status": "ok"})
