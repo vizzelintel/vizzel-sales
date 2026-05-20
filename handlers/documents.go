@@ -130,12 +130,24 @@ func GetProjectDocuments(c *gin.Context) {
 	c.JSON(http.StatusOK, docs)
 }
 
-// uploadToStorage uploads a file to Supabase Storage and returns the public URL.
+// uploadToStorage uploads a file to Supabase Storage bucket "project-docs"
+// and returns the public URL.
+// Upload endpoint: POST {SUPABASE_URL}/storage/v1/object/project-docs/{path}
+// Authorization:   Bearer {SUPABASE_SERVICE_KEY}
 func uploadToStorage(projectID, filename, contentType string, r io.Reader) (string, error) {
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	serviceKey := os.Getenv("SUPABASE_SERVICE_KEY")
-	if supabaseURL == "" || serviceKey == "" {
-		return "", fmt.Errorf("SUPABASE_URL or SUPABASE_SERVICE_KEY not configured")
+
+	// Report each missing var by name to make misconfiguration obvious in logs.
+	var missing []string
+	if supabaseURL == "" {
+		missing = append(missing, "SUPABASE_URL")
+	}
+	if serviceKey == "" {
+		missing = append(missing, "SUPABASE_SERVICE_KEY")
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("env vars not set: %s", strings.Join(missing, ", "))
 	}
 
 	ext := filepath.Ext(filename)
@@ -148,6 +160,7 @@ func uploadToStorage(projectID, filename, contentType string, r io.Reader) (stri
 	}
 	req.Header.Set("Authorization", "Bearer "+serviceKey)
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("x-upsert", "true") // allow overwrite if object already exists
 
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
