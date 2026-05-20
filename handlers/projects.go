@@ -28,11 +28,21 @@ var validStatuses = map[string]bool{
 	"reject":      true,
 }
 
-// Transitions to these statuses require >= 1 document attached to the project first.
-var statusRequiresDocs = map[string]bool{
-	"quotation": true,
-	"contract":  true,
-	"closing":   true,
+// Sequential doc requirements: each status maps to the ordered set of doc_types
+// that must already be present before the transition is permitted.
+var statusDocRequirements = map[string][]string{
+	"tor":      {"QUOTE"},
+	"contract": {"QUOTE", "TOR"},
+	"closing":  {"QUOTE", "TOR", "CONTRACT"},
+	"closed":   {"QUOTE", "TOR", "CONTRACT", "CLOSING"},
+}
+
+var docTypeLabel = map[string]string{
+	"QUOTE":    "ใบเสนอราคา",
+	"TOR":      "ร่าง TOR",
+	"CONTRACT": "สัญญาจัดซื้อจัดจ้าง",
+	"CLOSING":  "เอกสารปิดงาน",
+	"DELIVERY": "ใบส่งมอบสินทรัพย์",
 }
 
 // Appointment statuses trigger a Google Calendar event when appointment_date is provided.
@@ -183,14 +193,29 @@ func UpdateProjectStatus(c *gin.Context) {
 		return
 	}
 
-	// doc-gated statuses: project must have >= 1 document attached
-	if statusRequiresDocs[req.Status] {
-		var count int
-		if err := config.DB.QueryRow(context.Background(),
-			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid`, id,
-		).Scan(&count); err != nil || count == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาแนบเอกสารก่อนเปลี่ยนสถานะ"})
+	// Sequential doc check: verify each required doc_type is present.
+	if required, needsCheck := statusDocRequirements[req.Status]; needsCheck {
+		rows, err := config.DB.Query(context.Background(),
+			`SELECT DISTINCT doc_type FROM documents WHERE project_id = $1::uuid`, id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check documents"})
 			return
+		}
+		have := make(map[string]bool)
+		for rows.Next() {
+			var dt string
+			rows.Scan(&dt)
+			have[dt] = true
+		}
+		rows.Close()
+
+		for _, docType := range required {
+			if !have[docType] {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("กรุณาแนบเอกสาร %s ก่อนดำเนินการต่อ", docTypeLabel[docType]),
+				})
+				return
+			}
 		}
 	}
 

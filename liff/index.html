@@ -105,7 +105,8 @@
     .doc-link { color: #007AFF; font-size: 12px; flex-shrink: 0; }
 
     /* ── Status buttons ── */
-    .sbtn-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sbtn-grid { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+    .sbtn-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
     .sbtn { padding: 9px 14px; border-radius: 20px; border: 2px solid; background: white; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s; }
     .sbtn:active { opacity: .75; }
     .sbtn.cg-gray   { border-color: #8e8e93; color: #8e8e93; }
@@ -113,6 +114,19 @@
     .sbtn.cg-orange { border-color: #FF9500; color: #FF9500; }
     .sbtn.cg-green  { border-color: #34C759; color: #34C759; }
     .sbtn.cg-red    { border-color: #FF3B30; color: #FF3B30; }
+    .sbtn-blocked { opacity: .4; cursor: not-allowed; }
+    .sbtn-hint { font-size: 10px; color: #FF9500; text-align: center; max-width: 100px; line-height: 1.3; }
+
+    /* ── Doc sequential progress ── */
+    .doc-progress { display: flex; align-items: flex-start; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 12px 10px 10px; gap: 0; }
+    .dp-item { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 56px; flex-shrink: 0; }
+    .dp-icon { font-size: 18px; line-height: 1; }
+    .dp-label { font-size: 9px; text-align: center; color: #8e8e93; line-height: 1.2; max-width: 56px; }
+    .dp-item.dp-done .dp-label { color: #34C759; font-weight: 700; }
+    .dp-item.dp-next .dp-label { color: #FF9500; font-weight: 700; }
+    .dp-item.dp-locked .dp-icon { filter: grayscale(1); opacity: .4; }
+    .dp-arrow { color: #c7c7cc; font-size: 12px; align-self: center; margin-bottom: 20px; padding: 0 1px; flex-shrink: 0; }
+    .doc-other-badge { font-size: 12px; color: #8e8e93; text-align: right; padding: 6px 14px 4px; }
 
     /* ── Buttons ── */
     .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; text-align: center; font-family: inherit; transition: opacity .15s; }
@@ -268,7 +282,7 @@
   </div>
 </div>
 
-<input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx">
+<input type="file" id="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx">
 <div id="province-drop"></div>
 <div class="toast" id="toast"></div>
 
@@ -313,8 +327,24 @@ const NEXT = {
   reject:       ["registrator"],
 };
 
-/* Statuses that require >= 1 doc before the backend will accept the transition */
-const NEEDS_DOC = new Set(["quotation","contract","closing"]);
+/* Sequential doc requirements per status (mirrors backend statusDocRequirements) */
+const DOC_REQUIREMENTS = {
+  tor:      ["QUOTE"],
+  contract: ["QUOTE","TOR"],
+  closing:  ["QUOTE","TOR","CONTRACT"],
+  closed:   ["QUOTE","TOR","CONTRACT","CLOSING"],
+};
+
+const DOC_NAMES = {
+  QUOTE:    "ใบเสนอราคา",
+  TOR:      "ร่าง TOR",
+  CONTRACT: "สัญญาจัดซื้อจัดจ้าง",
+  CLOSING:  "เอกสารปิดงาน",
+  DELIVERY: "ใบส่งมอบสินทรัพย์",
+  OTHER:    "เอกสารอื่นๆ",
+};
+
+const DOC_TYPES_SEQ = ["QUOTE","TOR","CONTRACT","CLOSING","DELIVERY"];
 
 /* Statuses that trigger a Google Calendar appointment */
 const APPT_STATUSES = new Set(["present","demo","site_survey"]);
@@ -460,13 +490,17 @@ async function showDetail(id) {
   activateScreen("detail");
   document.querySelectorAll(".tab").forEach(t => t.classList.remove("on"));
 
-  document.getElementById("detailContent").innerHTML = buildDetailInfo(p) +
+  // Render project info immediately; docs + status buttons after we know what's uploaded
+  document.getElementById("detailContent").innerHTML =
+    buildDetailInfo(p) +
     `<div class="sec" style="margin-bottom:7px">เอกสาร</div>
-     <div class="dcard" id="docsCard"><div class="spin-wrap"><div class="spinner"></div></div></div>
+     <div id="docsSection"><div class="spin-wrap"><div class="spinner"></div></div></div>
      <div class="sec" style="margin-bottom:7px">เปลี่ยนสถานะ</div>
-     <div class="dcard" style="padding:14px">${buildStatusBtns(p)}</div>`;
+     <div id="statusSection"><div class="spin-wrap"><div class="spinner"></div></div></div>`;
 
-  loadDocs(id);
+  const docs = await fetchProjectDocs(id);
+  renderDocsSection(docs, id);
+  renderStatusSection(p, docs);
 }
 
 function buildDetailInfo(p) {
@@ -488,44 +522,92 @@ function buildDetailInfo(p) {
   }</div>`;
 }
 
-function buildStatusBtns(p) {
-  const nexts = NEXT[p.status] || [];
-  if (!nexts.length) return '<p style="color:#8e8e93;font-size:13px;text-align:center">สิ้นสุดกระบวนการ</p>';
-  return `<div class="sbtn-grid">${nexts.map(s => {
-    const g = STATUS[s]?.group || "gray";
-    return `<button class="sbtn cg-${g}" onclick="tryChangeStatus('${p.id}','${s}')">${STATUS[s]?.label || s}</button>`;
-  }).join("")}</div>`;
-}
-
-async function loadDocs(projectID) {
-  const card = document.getElementById("docsCard");
-  if (!card) return;
+async function fetchProjectDocs(projectID) {
   try {
     const res = await fetch(`${API}/api/v1/projects/${projectID}/documents`, {
       headers: { Authorization: "Bearer " + token },
     });
-    if (!res.ok) throw new Error();
-    const docs = await res.json();
-    if (!docs.length) {
-      card.innerHTML = emptyH("📎","ยังไม่มีเอกสาร");
-    } else {
-      card.innerHTML = docs.map(d => `
+    return res.ok ? await res.json() : [];
+  } catch { return []; }
+}
+
+function renderDocsSection(docs, projectID) {
+  const el = document.getElementById("docsSection");
+  if (!el) return;
+
+  const docTypeSet = new Set(docs.map(d => d.doc_type));
+
+  // Sequential progress bar
+  let foundMissing = false;
+  const progressItems = DOC_TYPES_SEQ.map((dt, i) => {
+    const done = docTypeSet.has(dt);
+    let state, icon;
+    if (done) { state = "dp-done"; icon = "✅"; }
+    else if (!foundMissing) { foundMissing = true; state = "dp-next"; icon = "⏳"; }
+    else { state = "dp-locked"; icon = "🔒"; }
+    const arrow = i < DOC_TYPES_SEQ.length - 1
+      ? `<div class="dp-arrow">›</div>` : "";
+    return `<div class="dp-item ${state}">
+      <div class="dp-icon">${icon}</div>
+      <div class="dp-label">${DOC_NAMES[dt]}</div>
+    </div>${arrow}`;
+  }).join("");
+
+  // Doc rows (sequential first, OTHER at end)
+  const seqDocs   = docs.filter(d => d.doc_type !== "OTHER");
+  const otherDocs = docs.filter(d => d.doc_type === "OTHER");
+  const allDocs   = [...seqDocs, ...otherDocs];
+
+  const docRows = allDocs.length
+    ? allDocs.map(d => `
         <div class="doc-row">
-          <div class="doc-icon">📄</div>
+          <div class="doc-icon">${fileIcon(d.file_name)}</div>
           <div class="doc-info">
-            <div class="doc-type">${esc(d.doc_type || "เอกสาร")}</div>
-            <div class="doc-date">${fmtDate(d.created_at)}</div>
+            <div class="doc-type">${esc(DOC_NAMES[d.doc_type] || d.doc_type || "เอกสาร")}</div>
+            <div class="doc-date">${esc(d.file_name || '')}${d.file_name && d.created_at ? ' · ' : ''}${fmtDate(d.created_at)}</div>
           </div>
           <a class="doc-link" href="${esc(d.file_url)}" target="_blank">ดู ›</a>
-        </div>`).join("");
-    }
-  } catch {
-    card.innerHTML = emptyH("⚠️","โหลดเอกสารไม่สำเร็จ");
+        </div>`).join("")
+    : `<div style="border-top:1px solid #f2f2f7">${emptyH("📎","ยังไม่มีเอกสาร")}</div>`;
+
+  el.innerHTML = `
+    <div class="dcard" style="overflow:hidden">
+      <div class="doc-progress">${progressItems}</div>
+      <div style="border-top:1px solid #f2f2f7">${docRows}</div>
+      <div class="doc-other-badge">เอกสารอื่นๆ ${otherDocs.length}/5</div>
+    </div>
+    <button class="btn btn-green" style="margin-top:8px;font-size:14px"
+            onclick="openUploadOverlay('${esc(projectID)}')">+ แนบเอกสาร</button>`;
+}
+
+function renderStatusSection(p, docs) {
+  const el = document.getElementById("statusSection");
+  if (!el) return;
+
+  const nexts = NEXT[p.status] || [];
+  if (!nexts.length) {
+    el.innerHTML = `<p style="color:#8e8e93;font-size:13px;text-align:center;padding:16px">สิ้นสุดกระบวนการ</p>`;
+    return;
   }
+
+  const docTypeSet = new Set(docs.map(d => d.doc_type));
+  const btns = nexts.map(s => {
+    const g       = STATUS[s]?.group || "gray";
+    const missing = (DOC_REQUIREMENTS[s] || []).filter(dt => !docTypeSet.has(dt));
+    if (missing.length) {
+      return `<div class="sbtn-wrap">
+        <button class="sbtn cg-gray sbtn-blocked" disabled>${STATUS[s]?.label || s}</button>
+        <span class="sbtn-hint">ต้องการ: ${DOC_NAMES[missing[0]]}</span>
+      </div>`;
+    }
+    return `<button class="sbtn cg-${g}" onclick="tryChangeStatus('${esc(p.id)}','${s}')">${STATUS[s]?.label || s}</button>`;
+  }).join("");
+
+  el.innerHTML = `<div class="dcard" style="padding:14px"><div class="sbtn-grid">${btns}</div></div>`;
 }
 
 /* ─── Status change ─── */
-let _pendingStatus = "";
+let _pendingStatus    = "";
 let _pendingProjectID = "";
 
 function tryChangeStatus(projectID, newStatus) {
@@ -534,8 +616,6 @@ function tryChangeStatus(projectID, newStatus) {
 
   if (APPT_STATUSES.has(newStatus)) {
     openApptOverlay(newStatus);
-  } else if (NEEDS_DOC.has(newStatus)) {
-    openDocOverlay(newStatus);
   } else if (newStatus === "reject") {
     openRejectOverlay();
   } else {
@@ -545,32 +625,30 @@ function tryChangeStatus(projectID, newStatus) {
 
 async function doChangeStatus(projectID, status, statusNote, rejectReason, appointmentDate, appointmentNote) {
   try {
-    const body = {
-      status,
-      status_note:      statusNote      || "",
-      reject_reason:    rejectReason    || "",
-      appointment_date: appointmentDate || "",
-      appointment_note: appointmentNote || "",
-    };
     const res = await fetch(`${API}/api/v1/projects/${projectID}/status`, {
       method: "PUT",
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        status,
+        status_note:      statusNote      || "",
+        reject_reason:    rejectReason    || "",
+        appointment_date: appointmentDate || "",
+        appointment_note: appointmentNote || "",
+      }),
     });
     const data = await res.json();
     if (!res.ok) { toast(data.error || "เปลี่ยนสถานะไม่สำเร็จ"); return; }
 
     const p = projects.find(x => x.id === projectID);
     if (p) {
-      p.status           = status;
-      p.status_note      = statusNote      || "";
-      p.reject_reason    = rejectReason    || "";
-      p.appointment_date = appointmentDate || "";
-      p.appointment_note = appointmentNote || "";
+      p.status            = status;
+      p.status_note       = statusNote      || "";
+      p.reject_reason     = rejectReason    || "";
+      p.appointment_date  = appointmentDate || "";
+      p.appointment_note  = appointmentNote || "";
       p.calendar_event_id = data.calendar_event_id || "";
     }
 
-    // Toast: calendar outcome
     if (APPT_STATUSES.has(status) && appointmentDate) {
       toast(data.calendar_ok
         ? "✅ บันทึกนัดหมายในปฏิทินแล้ว"
@@ -582,12 +660,16 @@ async function doChangeStatus(projectID, status, statusNote, rejectReason, appoi
     renderPipeline();
     renderProjList();
     if (p) {
-      document.getElementById("detailContent").innerHTML = buildDetailInfo(p) +
+      // Re-render detail: refresh docs so status buttons reflect updated requirements
+      document.getElementById("detailContent").innerHTML =
+        buildDetailInfo(p) +
         `<div class="sec" style="margin-bottom:7px">เอกสาร</div>
-         <div class="dcard" id="docsCard"><div class="spin-wrap"><div class="spinner"></div></div></div>
+         <div id="docsSection"><div class="spin-wrap"><div class="spinner"></div></div></div>
          <div class="sec" style="margin-bottom:7px">เปลี่ยนสถานะ</div>
-         <div class="dcard" style="padding:14px">${buildStatusBtns(p)}</div>`;
-      loadDocs(projectID);
+         <div id="statusSection"><div class="spin-wrap"><div class="spinner"></div></div></div>`;
+      const docs = await fetchProjectDocs(projectID);
+      renderDocsSection(docs, projectID);
+      renderStatusSection(p, docs);
     }
   } catch { toast("เปลี่ยนสถานะไม่สำเร็จ"); }
 }
@@ -609,48 +691,60 @@ function openApptOverlay(newStatus) {
   document.getElementById("overlay").classList.add("on");
 }
 
-/* ─── Overlay: doc upload ─── */
+/* ─── Overlay: standalone document upload ─── */
 let _selectedFile = null;
 
-function openDocOverlay(newStatus) {
-  _selectedFile = null;
+function openUploadOverlay(projectID) {
+  _selectedFile     = null;
+  _pendingProjectID = projectID;
+  _pendingStatus    = "__upload__"; // sentinel for confirmOverlay
+
   document.getElementById("ov-title").textContent = "แนบเอกสาร";
-  document.getElementById("ov-sub").textContent =
-    `กรุณาแนบเอกสารก่อนเปลี่ยนสถานะเป็น "${STATUS[newStatus]?.label}"`;
-  document.getElementById("ov-body").innerHTML = `
+  document.getElementById("ov-sub").textContent   = "เลือกประเภทและไฟล์เอกสาร (PDF, Word, Excel)";
+  document.getElementById("ov-body").innerHTML    = `
     <div class="ov-section">
-      <div class="ov-label">ประเภทเอกสาร</div>
+      <div class="ov-label">ประเภทเอกสาร *</div>
       <select class="ov-input" id="ov-doctype">
         <option value="">-- เลือกประเภท --</option>
-        <option>ใบเสนอราคา</option>
-        <option>ร่าง TOR</option>
-        <option>สัญญาจัดซื้อจัดจ้าง</option>
-        <option>เอกสารปิดงาน</option>
-        <option>ใบส่งมอบสินทรัพย์</option>
-        <option>อื่น ๆ</option>
+        <option value="QUOTE">ใบเสนอราคา</option>
+        <option value="TOR">ร่าง TOR</option>
+        <option value="CONTRACT">สัญญาจัดซื้อจัดจ้าง</option>
+        <option value="CLOSING">เอกสารปิดงาน</option>
+        <option value="DELIVERY">ใบส่งมอบสินทรัพย์</option>
+        <option value="OTHER">เอกสารอื่นๆ</option>
       </select>
     </div>
     <div class="ov-section">
-      <div class="ov-label">ไฟล์เอกสาร</div>
+      <div class="ov-label">ไฟล์เอกสาร *</div>
       <div class="file-trigger" id="file-trigger" onclick="document.getElementById('file-input').click()">
         <div class="file-trigger-icon">📎</div>
         <div id="file-trigger-text" class="file-trigger-text">แตะเพื่อเลือกไฟล์</div>
       </div>
     </div>`;
-  document.getElementById("ov-confirm").textContent = "แนบและเปลี่ยนสถานะ";
-  document.getElementById("file-input").value = "";
-  document.getElementById("file-input").onchange = onFileChosen;
+  document.getElementById("ov-confirm").textContent = "อัปโหลด";
+  document.getElementById("file-input").value       = "";
+  document.getElementById("file-input").onchange    = onFileChosen;
   document.getElementById("overlay").classList.add("on");
 }
 
 function onFileChosen(e) {
   const file = e.target.files[0];
   if (!file) return;
+
+  // Client-side extension validation
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (!["pdf","doc","docx","xls","xlsx"].includes(ext)) {
+    toast("รองรับเฉพาะไฟล์ PDF, Word และ Excel เท่านั้น");
+    e.target.value = "";
+    return;
+  }
+
   _selectedFile = file;
   const trigger = document.getElementById("file-trigger");
   trigger.classList.add("has-file");
-  document.getElementById("file-trigger-text").className = "file-trigger-name";
-  document.getElementById("file-trigger-text").textContent = file.name;
+  const textEl = document.getElementById("file-trigger-text");
+  textEl.className   = "file-trigger-name";
+  textEl.textContent = `${file.name}  (${fmtSize(file.size)})`;
 }
 
 /* ─── Overlay: reject reason ─── */
@@ -667,29 +761,33 @@ function openRejectOverlay() {
 
 /* ─── Overlay confirm ─── */
 async function confirmOverlay() {
-  closeOverlay();
-
-  // Appointment statuses → send date + note, calendar created server-side
+  // Appointment: validate before closing
   if (APPT_STATUSES.has(_pendingStatus)) {
     const rawDate = document.getElementById("ov-appt-date")?.value;
     if (!rawDate) { toast("กรุณาเลือกวันและเวลานัดหมาย"); return; }
-    const isoDate = new Date(rawDate).toISOString();
-    const note    = document.getElementById("ov-appt-note")?.value.trim() || "";
-    await doChangeStatus(_pendingProjectID, _pendingStatus, "", "", isoDate, note);
+    closeOverlay();
+    const note = document.getElementById("ov-appt-note")?.value.trim() || "";
+    await doChangeStatus(_pendingProjectID, _pendingStatus, "", "", new Date(rawDate).toISOString(), note);
     return;
   }
 
+  // Reject: validate before closing
   if (_pendingStatus === "reject") {
     const reason = document.getElementById("ov-reason")?.value.trim() || "";
     if (!reason) { toast("กรุณาระบุเหตุผลที่ปฏิเสธ"); return; }
+    closeOverlay();
     await doChangeStatus(_pendingProjectID, "reject", "", reason);
     return;
   }
 
-  if (NEEDS_DOC.has(_pendingStatus)) {
-    if (!_selectedFile) { toast("กรุณาแนบเอกสารก่อนเปลี่ยนสถานะ"); return; }
+  // Standalone document upload
+  if (_pendingStatus === "__upload__") {
     const docType = document.getElementById("ov-doctype")?.value || "";
+    if (!docType)       { toast("กรุณาเลือกประเภทเอกสาร"); return; }
+    if (!_selectedFile) { toast("กรุณาเลือกไฟล์"); return; }
+    closeOverlay();
 
+    toast("กำลังอัปโหลด...");
     const fd = new FormData();
     fd.append("project_id", _pendingProjectID);
     fd.append("doc_type",   docType);
@@ -701,12 +799,20 @@ async function confirmOverlay() {
         headers: { Authorization: "Bearer " + token },
         body: fd,
       });
-      if (!up.ok) { const e = await up.json(); throw new Error(e.error); }
+      const data = await up.json();
+      if (!up.ok) throw new Error(data.error || "upload failed");
+
+      toast("อัปโหลดเอกสารสำเร็จ ✓");
+
+      // Refresh docs section + re-evaluate status buttons
+      const projectID = _pendingProjectID;
+      const docs = await fetchProjectDocs(projectID);
+      renderDocsSection(docs, projectID);
+      const p = projects.find(x => x.id === projectID);
+      if (p) renderStatusSection(p, docs);
     } catch(e) {
       toast("อัปโหลดไม่สำเร็จ: " + (e.message || "error"));
-      return;
     }
-    await doChangeStatus(_pendingProjectID, _pendingStatus, "", "");
     return;
   }
 }
@@ -752,6 +858,21 @@ function esc(s) {
   return String(s || "")
     .replace(/&/g,"&amp;").replace(/</g,"&lt;")
     .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function fileIcon(filename) {
+  const ext = (filename || "").split(".").pop().toLowerCase();
+  if (ext === "pdf")               return "📄";
+  if (["doc","docx"].includes(ext)) return "📝";
+  if (["xls","xlsx"].includes(ext)) return "📊";
+  return "📎";
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return "";
+  if (bytes < 1024)        return bytes + " B";
+  if (bytes < 1048576)     return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1048576).toFixed(1) + " MB";
 }
 
 /* ─── Province picker ─── */

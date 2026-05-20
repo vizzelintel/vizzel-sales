@@ -16,3 +16,8 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS uploaded_by uuid REFERENCES users
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS appointment_date  timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS appointment_note  text;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS calendar_event_id text;
+
+-- Documents: file metadata for validation and display
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_name text;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size bigint;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS mime_type text;

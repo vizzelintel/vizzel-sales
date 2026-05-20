@@ -45,6 +45,9 @@ type Document struct {
 	ProjectID  string    `json:"project_id"`
 	DocType    string    `json:"doc_type"`
 	FileURL    string    `json:"file_url"`
+	FileName   string    `json:"file_name,omitempty"`
+	FileSize   int64     `json:"file_size,omitempty"`
+	MimeType   string    `json:"mime_type,omitempty"`
 	UploadedBy string    `json:"uploaded_by,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
