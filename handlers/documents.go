@@ -129,50 +129,89 @@ func CreateDocument(c *gin.Context) {
 }
 
 // autoAdvanceStatus moves the project to the next sequential status when the
-// correct document is uploaded. Called after every successful document insert.
+// correct document is uploaded. All errors are logged; none cause the upload to fail.
 func autoAdvanceStatus(projectID, docType, userID string) {
 	ctx := context.Background()
 
-	var currentStatus string
+	// Fetch project status and the creator's UUID in one query.
+	// created_by is the project owner; we use their role to decide TOR gating.
+	var currentStatus, createdBy string
 	if err := config.DB.QueryRow(ctx,
-		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, projectID,
-	).Scan(&currentStatus); err != nil {
+		`SELECT COALESCE(status,''), COALESCE(created_by::text,'')
+		 FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&currentStatus, &createdBy); err != nil {
+		fmt.Printf("[STATUS] failed to fetch project %s: %v\n", projectID, err)
 		return
 	}
 
-	// Map (docType, currentStatus) → nextStatus
+	// Skip terminal states — nothing to advance.
+	if currentStatus == "closed" || currentStatus == "reject" {
+		fmt.Printf("[STATUS] project=%s already terminal (%s), skip\n", projectID, currentStatus)
+		return
+	}
+
+	// Determine whether the project owner has a support/admin role.
+	// Falls back to false (dealer) when role is empty/unset.
+	ownerIsSupport := false
+	if createdBy != "" {
+		var ownerRole string
+		if err := config.DB.QueryRow(ctx,
+			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, createdBy,
+		).Scan(&ownerRole); err == nil {
+			ownerIsSupport = ownerRole == "support" || ownerRole == "admin"
+		}
+	}
+
+	countDocs := func(dtype string) int {
+		var n int
+		_ = config.DB.QueryRow(ctx,
+			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
+			projectID, dtype,
+		).Scan(&n)
+		return n
+	}
+
 	var nextStatus string
 	switch docType {
 	case "quotation_support":
-		// demo/site_survey are transient sub-activities that sit "on top of" present
 		if currentStatus == "present" || currentStatus == "demo" || currentStatus == "site_survey" {
 			nextStatus = "quotation"
 		}
+
 	case "tor_support":
 		if currentStatus == "quotation" {
-			nextStatus = "tor"
-		}
-	case "tor_dealer":
-		// Advance to tor only when tor_support was also uploaded (both sides submitted)
-		if currentStatus == "quotation" {
-			var supportCount int
-			if err := config.DB.QueryRow(ctx,
-				`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = 'tor_support'`,
-				projectID,
-			).Scan(&supportCount); err == nil && supportCount >= 1 {
+			if ownerIsSupport {
+				// Support-created project: one TOR doc is enough.
 				nextStatus = "tor"
+			} else {
+				// Dealer-created project: also need tor_dealer.
+				// When role is unset (empty), treat as support path for safety.
+				if countDocs("tor_dealer") >= 1 || !ownerIsSupport {
+					nextStatus = "tor"
+				}
 			}
 		}
+
+	case "tor_dealer":
+		// Only advance when tor_support was already uploaded.
+		if currentStatus == "quotation" && countDocs("tor_support") >= 1 {
+			nextStatus = "tor"
+		}
+
 	case "contract":
 		if currentStatus == "tor" {
 			nextStatus = "contract"
 		}
+
 	case "closing":
 		if currentStatus == "contract" {
 			nextStatus = "closed"
 		}
-	// site_survey docs: no status change
+	// site_survey: no status change
 	}
+
+	fmt.Printf("[STATUS] project=%s docType=%s ownerIsSupport=%v currentStatus=%s newStatus=%s\n",
+		projectID, docType, ownerIsSupport, currentStatus, nextStatus)
 
 	if nextStatus == "" {
 		return
@@ -191,15 +230,18 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		 WHERE id = $2::uuid`, autoRejectExpr),
 		nextStatus, projectID,
 	); err != nil {
+		fmt.Printf("[STATUS] UPDATE failed project=%s newStatus=%s: %v\n", projectID, nextStatus, err)
 		return
 	}
 
-	// Log the auto-advance
 	_, _ = config.DB.Exec(ctx,
 		`INSERT INTO project_status_logs (project_id, from_status, to_status, changed_by, note)
-		 VALUES ($1::uuid, $2, $3, NULLIF($4,'')::uuid, 'auto-advance on document upload')`,
+		 VALUES ($1::uuid, $2, $3, NULLIF($4,'')::uuid, $5)`,
 		projectID, currentStatus, nextStatus, userID,
+		"อัปเดตอัตโนมัติจากการแนบเอกสาร: "+docType,
 	)
+
+	fmt.Printf("[STATUS] advanced project=%s %s→%s\n", projectID, currentStatus, nextStatus)
 }
 
 // DeleteDocument removes a document record and its stored file.
