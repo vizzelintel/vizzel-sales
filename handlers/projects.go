@@ -28,21 +28,19 @@ var validStatuses = map[string]bool{
 	"reject":      true,
 }
 
-// Sequential doc requirements: each status maps to the ordered set of doc_types
-// that must already be present before the transition is permitted.
-var statusDocRequirements = map[string][]string{
-	"tor":      {"QUOTE"},
-	"contract": {"QUOTE", "TOR"},
-	"closing":  {"QUOTE", "TOR", "CONTRACT"},
-	"closed":   {"QUOTE", "TOR", "CONTRACT", "CLOSING"},
+// Single required doc_type per status. Statuses absent from this map have no doc requirement.
+// tor, won, closed, present, demo, site_survey, reject = no doc required.
+var statusDocRequirements = map[string]string{
+	"quotation": "quotation",
+	"contract":  "contract",
+	"closing":   "closing",
 }
 
 var docTypeLabel = map[string]string{
-	"QUOTE":    "ใบเสนอราคา",
-	"TOR":      "ร่าง TOR",
-	"CONTRACT": "สัญญาจัดซื้อจัดจ้าง",
-	"CLOSING":  "เอกสารปิดงาน",
-	"DELIVERY": "ใบส่งมอบสินทรัพย์",
+	"quotation": "ใบเสนอราคา",
+	"tor":       "ร่าง TOR",
+	"contract":  "เอกสารสัญญา",
+	"closing":   "เอกสารปิดงาน",
 }
 
 // Appointment statuses trigger a Google Calendar event when appointment_date is provided.
@@ -193,29 +191,21 @@ func UpdateProjectStatus(c *gin.Context) {
 		return
 	}
 
-	// Sequential doc check: verify each required doc_type is present.
+	// Doc check: verify the single required doc_type is present before the transition.
 	if required, needsCheck := statusDocRequirements[req.Status]; needsCheck {
-		rows, err := config.DB.Query(context.Background(),
-			`SELECT DISTINCT doc_type FROM documents WHERE project_id = $1::uuid`, id)
-		if err != nil {
+		var count int
+		if err := config.DB.QueryRow(context.Background(),
+			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
+			id, required,
+		).Scan(&count); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check documents"})
 			return
 		}
-		have := make(map[string]bool)
-		for rows.Next() {
-			var dt string
-			rows.Scan(&dt)
-			have[dt] = true
-		}
-		rows.Close()
-
-		for _, docType := range required {
-			if !have[docType] {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": fmt.Sprintf("กรุณาแนบเอกสาร %s ก่อนดำเนินการต่อ", docTypeLabel[docType]),
-				})
-				return
-			}
+		if count == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("กรุณาแนบเอกสาร %s ก่อนดำเนินการต่อ", docTypeLabel[required]),
+			})
+			return
 		}
 	}
 

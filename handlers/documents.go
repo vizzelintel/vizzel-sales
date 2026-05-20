@@ -37,11 +37,12 @@ func CreateDocument(c *gin.Context) {
 
 	validDocTypes := map[string]bool{
 		"quotation": true,
+		"tor":       true,
 		"contract":  true,
 		"closing":   true,
 	}
 	if !validDocTypes[docType] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ประเภทเอกสารไม่ถูกต้อง ต้องเป็น quotation, contract หรือ closing เท่านั้น"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ประเภทเอกสารไม่ถูกต้อง ต้องเป็น quotation, tor, contract หรือ closing เท่านั้น"})
 		return
 	}
 
