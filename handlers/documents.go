@@ -18,15 +18,22 @@ import (
 	"vizzel-backend/models"
 )
 
-// Maximum uploads allowed per doc_type per project.
-var docTypeLimits = map[string]int{
-	"quotation_support": 1,
-	"tor_support":       1,
-	"tor_dealer":        1,
-	"contract":          1,
-	"closing":           1,
-	"site_survey":       3,
+// retroactiveDocs: can be re-uploaded after deletion; do NOT drive status advance.
+var retroactiveDocs = map[string]bool{
+	"quotation_support": true,
+	"quotation_dealer":  true,
+	"tor_support":       true,
+	"tor_dealer":        true,
 }
+
+// primaryFlowDocs: drive status advance; only one per project.
+var primaryFlowDocs = map[string]bool{
+	"contract": true,
+	"closing":  true,
+}
+
+// site_survey allows up to 3 uploads.
+const siteSurveyLimit = 3
 
 
 // allowedExts maps accepted lowercase extensions to their canonical MIME type.
@@ -51,6 +58,7 @@ func CreateDocument(c *gin.Context) {
 
 	validDocTypes := map[string]bool{
 		"quotation_support": true,
+		"quotation_dealer":  true,
 		"tor_support":       true,
 		"tor_dealer":        true,
 		"contract":          true,
@@ -62,15 +70,34 @@ func CreateDocument(c *gin.Context) {
 		return
 	}
 
-	// Enforce per-doc-type upload limit
-	if limit, ok := docTypeLimits[docType]; ok {
-		var count int
-		if err := config.DB.QueryRow(context.Background(),
-			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
-			projectID, docType,
-		).Scan(&count); err == nil && count >= limit {
+	// Count existing docs of this type for this project
+	var existingCount int
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
+		projectID, docType,
+	).Scan(&existingCount)
+
+	if retroactiveDocs[docType] {
+		// Retroactive types: allow only when count = 0 (i.e. deleted or never uploaded).
+		// They do NOT trigger status advance — just store the file.
+		if existingCount >= 1 {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "แนบเอกสารประเภทนี้ครบแล้ว (สูงสุด " + strconv.Itoa(limit) + " ครั้ง)",
+				"error": "เอกสารประเภทนี้มีอยู่แล้ว กรุณาลบก่อนแนบใหม่",
+			})
+			return
+		}
+	} else if primaryFlowDocs[docType] {
+		// Primary flow types: one per project, drive status advance.
+		if existingCount >= 1 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "แนบเอกสารประเภทนี้ครบแล้ว (สูงสุด 1 ครั้ง)",
+			})
+			return
+		}
+	} else if docType == "site_survey" {
+		if existingCount >= siteSurveyLimit {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "แนบเอกสาร Site Survey ครบแล้ว (สูงสุด " + strconv.Itoa(siteSurveyLimit) + " ครั้ง)",
 			})
 			return
 		}
@@ -122,8 +149,11 @@ func CreateDocument(c *gin.Context) {
 		return
 	}
 
-	// Auto-advance project status based on uploaded doc type
-	autoAdvanceStatus(projectID, docType, userIDStr)
+	// Only primary-flow and site_survey uploads trigger status advance.
+	// Retroactive uploads (after deletion) just store the file.
+	if !retroactiveDocs[docType] {
+		autoAdvanceStatus(projectID, docType, userIDStr)
+	}
 
 	c.JSON(http.StatusCreated, doc)
 }
