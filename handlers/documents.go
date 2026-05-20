@@ -2,18 +2,31 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"vizzel-backend/config"
 	"vizzel-backend/models"
 )
+
+// Maximum uploads allowed per doc_type per project.
+var docTypeLimits = map[string]int{
+	"quotation_support": 1,
+	"tor_support":       1,
+	"tor_dealer":        1,
+	"contract":          1,
+	"closing":           1,
+	"site_survey":       3,
+}
 
 
 // allowedExts maps accepted lowercase extensions to their canonical MIME type.
@@ -47,6 +60,20 @@ func CreateDocument(c *gin.Context) {
 	if !validDocTypes[docType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ประเภทเอกสารไม่ถูกต้อง"})
 		return
+	}
+
+	// Enforce per-doc-type upload limit
+	if limit, ok := docTypeLimits[docType]; ok {
+		var count int
+		if err := config.DB.QueryRow(context.Background(),
+			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
+			projectID, docType,
+		).Scan(&count); err == nil && count >= limit {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "แนบเอกสารประเภทนี้ครบแล้ว (สูงสุด " + strconv.Itoa(limit) + " ครั้ง)",
+			})
+			return
+		}
 	}
 
 	file, header, err := c.Request.FormFile("file")
@@ -125,6 +152,17 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		if currentStatus == "quotation" {
 			nextStatus = "tor"
 		}
+	case "tor_dealer":
+		// Advance to tor only when tor_support was also uploaded (both sides submitted)
+		if currentStatus == "quotation" {
+			var supportCount int
+			if err := config.DB.QueryRow(ctx,
+				`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = 'tor_support'`,
+				projectID,
+			).Scan(&supportCount); err == nil && supportCount >= 1 {
+				nextStatus = "tor"
+			}
+		}
 	case "contract":
 		if currentStatus == "tor" {
 			nextStatus = "contract"
@@ -133,7 +171,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		if currentStatus == "contract" {
 			nextStatus = "closed"
 		}
-	// tor_dealer and site_survey docs: no status change
+	// site_survey docs: no status change
 	}
 
 	if nextStatus == "" {
@@ -162,6 +200,68 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		 VALUES ($1::uuid, $2, $3, NULLIF($4,'')::uuid, 'auto-advance on document upload')`,
 		projectID, currentStatus, nextStatus, userID,
 	)
+}
+
+// DeleteDocument removes a document record and its stored file.
+// Returns 403 if the project is closed.
+func DeleteDocument(c *gin.Context) {
+	docID := c.Param("id")
+	ctx   := context.Background()
+
+	// Fetch document and its project status in one query
+	var projectStatus, fileURL string
+	err := config.DB.QueryRow(ctx, `
+		SELECT p.status, d.file_url
+		FROM documents d
+		JOIN projects p ON p.id = d.project_id
+		WHERE d.id = $1::uuid`, docID,
+	).Scan(&projectStatus, &fileURL)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch document"})
+		}
+		return
+	}
+
+	if projectStatus == "closed" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่สามารถลบเอกสารได้ เนื่องจากงานปิดแล้ว"})
+		return
+	}
+
+	// Delete from Supabase Storage (best-effort — DB deletion proceeds regardless)
+	deleteFromStorage(fileURL)
+
+	tag, err := config.DB.Exec(ctx, `DELETE FROM documents WHERE id = $1::uuid`, docID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete document"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "ลบเอกสารสำเร็จ"})
+}
+
+// deleteFromStorage removes a file from Supabase Storage.
+// The public URL format is: {BASE}/storage/v1/object/public/{bucket}/{file}
+// The delete URL format is: {BASE}/storage/v1/object/{bucket}/{file}
+func deleteFromStorage(fileURL string) {
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	serviceKey  := os.Getenv("SUPABASE_SERVICE_KEY")
+	if supabaseURL == "" || serviceKey == "" || fileURL == "" {
+		return
+	}
+	deleteURL := strings.Replace(fileURL, "/storage/v1/object/public/", "/storage/v1/object/", 1)
+	req, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+serviceKey)
+	(&http.Client{Timeout: 10 * time.Second}).Do(req) //nolint:errcheck
 }
 
 // GetProjectDocuments lists all documents for a project, oldest first (sequential display).

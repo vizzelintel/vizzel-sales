@@ -64,6 +64,7 @@ func main() {
 		api.POST("/companies", handlers.CreateCompany)
 
 		api.POST("/documents", handlers.CreateDocument)
+		api.DELETE("/documents/:id", handlers.DeleteDocument)
 	}
 
 	port := os.Getenv("PORT")
