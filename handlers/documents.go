@@ -35,6 +35,16 @@ func CreateDocument(c *gin.Context) {
 		return
 	}
 
+	validDocTypes := map[string]bool{
+		"quotation": true,
+		"contract":  true,
+		"closing":   true,
+	}
+	if !validDocTypes[docType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ประเภทเอกสารไม่ถูกต้อง ต้องเป็น quotation, contract หรือ closing เท่านั้น"})
+		return
+	}
+
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
@@ -52,18 +62,6 @@ func CreateDocument(c *gin.Context) {
 	// Prefer the browser-supplied Content-Type when reasonable, fall back to our map.
 	if ct := header.Header.Get("Content-Type"); ct != "" && ct != "application/octet-stream" {
 		mimeType = ct
-	}
-
-	// Enforce OTHER doc limit
-	if docType == "OTHER" {
-		var count int
-		if err := config.DB.QueryRow(context.Background(),
-			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = 'OTHER'`,
-			projectID,
-		).Scan(&count); err == nil && count >= 5 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "เอกสารอื่นๆ ครบ 5 ไฟล์แล้ว"})
-			return
-		}
 	}
 
 	fileURL, err := uploadToStorage(projectID, header.Filename, mimeType, file)
