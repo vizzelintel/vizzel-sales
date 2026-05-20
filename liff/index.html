@@ -693,20 +693,19 @@ function openApptOverlay(newStatus) {
   document.getElementById("overlay").classList.add("on");
 }
 
-/* ─── Overlay: standalone document upload ─── */
-let _selectedFile = null;
+/* ─── Overlay: document upload via external browser ─── */
+// LINE Android blocks non-image file inputs in the in-app WebView.
+// Fix: open upload.html in an external browser (Chrome/Safari) where
+// the native file picker works normally, then detect when the user
+// returns and auto-refresh the document list.
 
 function openUploadOverlay(projectID) {
-  _selectedFile     = null;
   _pendingProjectID = projectID;
-  _pendingStatus    = "__upload__"; // sentinel for confirmOverlay
+  _pendingStatus    = "__upload__";
 
   document.getElementById("ov-title").textContent = "แนบเอกสาร";
-  document.getElementById("ov-sub").textContent   = "เลือกประเภทและไฟล์เอกสาร (PDF, Word, Excel)";
-
-  // The <input> is injected inline — not display:none — so LINE's WebView
-  // receives a genuine tap event directly on the input element itself.
-  document.getElementById("ov-body").innerHTML = `
+  document.getElementById("ov-sub").textContent   = "เลือกประเภทแล้วอัปโหลดในเบราว์เซอร์ภายนอก";
+  document.getElementById("ov-body").innerHTML    = `
     <div class="ov-section">
       <div class="ov-label">ประเภทเอกสาร *</div>
       <select class="ov-input" id="ov-doctype">
@@ -719,39 +718,12 @@ function openUploadOverlay(projectID) {
         <option value="OTHER">เอกสารอื่นๆ</option>
       </select>
     </div>
-    <div class="ov-section">
-      <div class="ov-label">ไฟล์เอกสาร *</div>
-      <div class="file-pick-wrap">
-        <button type="button" class="file-pick-btn" id="file-pick-btn">📎 เลือกไฟล์</button>
-        <input type="file" class="file-pick-inp" id="file-input"
-               accept=".pdf,.doc,.docx,.xls,.xlsx"
-               onchange="onFileChosen(event)">
-      </div>
-      <div class="file-pick-name" id="file-pick-name" style="display:none"></div>
+    <div style="background:#fff8e1;border-radius:10px;padding:12px 14px;font-size:13px;color:#7a5f00;line-height:1.6">
+      💡 จะเปิดเบราว์เซอร์ภายนอกเพื่ออัปโหลดไฟล์<br>
+      หลังอัปโหลดเสร็จ กลับมาที่แอปนี้ได้เลย
     </div>`;
-
-  document.getElementById("ov-confirm").textContent = "อัปโหลด";
+  document.getElementById("ov-confirm").textContent = "เปิดหน้าอัปโหลด";
   document.getElementById("overlay").classList.add("on");
-}
-
-function onFileChosen(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const ext = file.name.split(".").pop().toLowerCase();
-  if (!["pdf","doc","docx","xls","xlsx"].includes(ext)) {
-    toast("รองรับเฉพาะไฟล์ PDF, Word และ Excel เท่านั้น");
-    e.target.value = "";
-    return;
-  }
-
-  _selectedFile = file;
-
-  const btn = document.getElementById("file-pick-btn");
-  if (btn) { btn.classList.add("has-file"); btn.textContent = "✓ " + file.name; }
-
-  const nameEl = document.getElementById("file-pick-name");
-  if (nameEl) { nameEl.textContent = fmtSize(file.size); nameEl.style.display = "block"; }
 }
 
 /* ─── Overlay: reject reason ─── */
@@ -787,39 +759,17 @@ async function confirmOverlay() {
     return;
   }
 
-  // Standalone document upload
+  // Open external browser for document upload (LINE Android blocks in-app file pickers)
   if (_pendingStatus === "__upload__") {
     const docType = document.getElementById("ov-doctype")?.value || "";
-    if (!docType)       { toast("กรุณาเลือกประเภทเอกสาร"); return; }
-    if (!_selectedFile) { toast("กรุณาเลือกไฟล์"); return; }
+    if (!docType) { toast("กรุณาเลือกประเภทเอกสาร"); return; }
     closeOverlay();
 
-    toast("กำลังอัปโหลด...");
-    const fd = new FormData();
-    fd.append("project_id", _pendingProjectID);
-    fd.append("doc_type",   docType);
-    fd.append("file",       _selectedFile);
-
-    try {
-      const up = await fetch(API + "/api/v1/documents", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + token },
-        body: fd,
-      });
-      const data = await up.json();
-      if (!up.ok) throw new Error(data.error || "upload failed");
-
-      toast("อัปโหลดเอกสารสำเร็จ ✓");
-
-      // Refresh docs section + re-evaluate status buttons
-      const projectID = _pendingProjectID;
-      const docs = await fetchProjectDocs(projectID);
-      renderDocsSection(docs, projectID);
-      const p = projects.find(x => x.id === projectID);
-      if (p) renderStatusSection(p, docs);
-    } catch(e) {
-      toast("อัปโหลดไม่สำเร็จ: " + (e.message || "error"));
-    }
+    const uploadURL = API + "/liff/upload.html" +
+      "?project_id=" + encodeURIComponent(_pendingProjectID) +
+      "&token="      + encodeURIComponent(token) +
+      "&doc_type="   + encodeURIComponent(docType);
+    liff.openWindow({ url: uploadURL, external: true });
     return;
   }
 }
@@ -948,6 +898,17 @@ document.addEventListener("click", e => {
   if (!e.target.closest("#f-region") && !e.target.closest("#province-drop")) {
     document.getElementById("province-drop").classList.remove("open");
   }
+});
+
+// When the user returns from the external upload page, refresh the
+// document list so newly uploaded files appear immediately.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !detailProjectID) return;
+  fetchProjectDocs(detailProjectID).then(docs => {
+    renderDocsSection(docs, detailProjectID);
+    const p = projects.find(x => x.id === detailProjectID);
+    if (p) renderStatusSection(p, docs);
+  });
 });
 
 init();

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>อัปโหลดเอกสาร - Vizzel Sales</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #f2f2f7; color: #1c1c1e; padding: 28px 16px; min-height: 100vh; }
+
+    .header { text-align: center; margin-bottom: 24px; }
+    .header-icon  { font-size: 44px; margin-bottom: 10px; }
+    .header-title { font-size: 20px; font-weight: 700; }
+    .header-sub   { font-size: 13px; color: #8e8e93; margin-top: 4px; }
+
+    .card { background: white; border-radius: 12px; padding: 18px 16px;
+            margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.07); }
+
+    .lbl { font-size: 12px; color: #8e8e93; font-weight: 600;
+           text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+
+    select { width: 100%; border: 1.5px solid #e5e5ea; border-radius: 10px;
+             padding: 12px; font-size: 15px; font-family: inherit; color: #1c1c1e;
+             background: white; outline: none; appearance: none; -webkit-appearance: none; }
+    select:focus { border-color: #06C755; }
+
+    .file-wrap { position: relative; }
+    .file-btn  { display: flex; align-items: center; justify-content: center; gap: 10px;
+                 width: 100%; padding: 16px; border: 1.5px dashed #c7c7cc;
+                 border-radius: 10px; background: white; font-size: 15px;
+                 font-family: inherit; cursor: pointer; color: #636366; }
+    .file-btn.has-file { border-color: #06C755; background: #f0fdf4; color: #06C755; }
+    /* opacity:0 overlay — the browser receives a real tap directly on the input */
+    .file-inp  { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                 opacity: 0; cursor: pointer; font-size: 0; }
+    .file-meta { margin-top: 8px; font-size: 13px; color: #06C755;
+                 font-weight: 600; word-break: break-all; }
+
+    .btn { display: block; width: 100%; padding: 16px; border: none;
+           border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;
+           text-align: center; font-family: inherit; background: #06C755; color: white;
+           transition: opacity .15s; margin-top: 6px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .spinner { display: inline-block; width: 18px; height: 18px;
+               border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+               border-radius: 50%; animation: spin .7s linear infinite;
+               vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .msg { padding: 16px; border-radius: 12px; font-size: 14px; line-height: 1.6;
+           text-align: center; margin-top: 14px; white-space: pre-line; }
+    .msg-ok  { background: #e4f9ec; color: #1a7a3b; }
+    .msg-err { background: #ffe5e5; color: #c0392b; }
+
+    .err-banner { background: #fff8e1; border-radius: 10px; padding: 14px;
+                  font-size: 13px; color: #7a5f00; line-height: 1.5; text-align: center; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon">📋</div>
+  <div class="header-title">อัปโหลดเอกสาร</div>
+  <div class="header-sub">Vizzel Sales</div>
+</div>
+
+<div id="main">
+  <div class="card">
+    <div class="lbl">ประเภทเอกสาร *</div>
+    <select id="doc-type">
+      <option value="">-- เลือกประเภท --</option>
+      <option value="QUOTE">ใบเสนอราคา</option>
+      <option value="TOR">ร่าง TOR</option>
+      <option value="CONTRACT">สัญญาจัดซื้อจัดจ้าง</option>
+      <option value="CLOSING">เอกสารปิดงาน</option>
+      <option value="DELIVERY">ใบส่งมอบสินทรัพย์</option>
+      <option value="OTHER">เอกสารอื่นๆ</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <div class="lbl">ไฟล์เอกสาร * — PDF, Word, Excel</div>
+    <div class="file-wrap">
+      <button type="button" class="file-btn" id="file-btn">📎 เลือกไฟล์</button>
+      <input type="file" class="file-inp" id="file-inp"
+             accept=".pdf,.doc,.docx,.xls,.xlsx"
+             onchange="onFileChosen(this)">
+    </div>
+    <div class="file-meta" id="file-meta" style="display:none"></div>
+  </div>
+
+  <button class="btn" id="submit-btn" onclick="doUpload()">อัปโหลด</button>
+  <div id="msg" class="msg" style="display:none"></div>
+</div>
+
+<script>
+const params     = new URLSearchParams(location.search);
+const PROJECT_ID = params.get("project_id") || "";
+const TOKEN      = params.get("token")      || "";
+const API_BASE   = "https://vizzel-sales-production.up.railway.app";
+
+// Pre-select doc_type when passed from LIFF
+const preType = params.get("doc_type") || "";
+if (preType) {
+  const sel = document.getElementById("doc-type");
+  for (const opt of sel.options) {
+    if (opt.value === preType) { opt.selected = true; break; }
+  }
+}
+
+// Surface a clear error if launched without required params
+if (!PROJECT_ID || !TOKEN) {
+  document.getElementById("main").innerHTML =
+    `<div class="err-banner">⚠️ ลิงก์ไม่ถูกต้อง<br>กรุณากลับไปที่แอป Vizzel Sales แล้วลองใหม่</div>`;
+}
+
+let selectedFile = null;
+
+function onFileChosen(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (!["pdf","doc","docx","xls","xlsx"].includes(ext)) {
+    showMsg("รองรับเฉพาะไฟล์ PDF, Word และ Excel เท่านั้น", false);
+    input.value = "";
+    return;
+  }
+
+  selectedFile = file;
+
+  const btn = document.getElementById("file-btn");
+  btn.classList.add("has-file");
+  btn.textContent = "✓ " + file.name;
+
+  const meta = document.getElementById("file-meta");
+  meta.textContent = fmtSize(file.size);
+  meta.style.display = "block";
+}
+
+async function doUpload() {
+  const docType = document.getElementById("doc-type").value;
+  if (!docType)      { showMsg("กรุณาเลือกประเภทเอกสาร", false); return; }
+  if (!selectedFile) { showMsg("กรุณาเลือกไฟล์", false); return; }
+
+  const btn = document.getElementById("submit-btn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>กำลังอัปโหลด...';
+
+  const fd = new FormData();
+  fd.append("project_id", PROJECT_ID);
+  fd.append("doc_type",   docType);
+  fd.append("file",       selectedFile);
+
+  try {
+    const res  = await fetch(API_BASE + "/api/v1/documents", {
+      method:  "POST",
+      headers: { Authorization: "Bearer " + TOKEN },
+      body:    fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "upload failed");
+
+    btn.style.display = "none";
+    showMsg("อัปโหลดสำเร็จ ✓\n\nกลับไปที่แอป Vizzel Sales\nระบบจะอัปเดตรายการเอกสารโดยอัตโนมัติ", true);
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = "อัปโหลด";
+    showMsg("อัปโหลดไม่สำเร็จ: " + e.message, false);
+  }
+}
+
+function showMsg(text, ok) {
+  const el = document.getElementById("msg");
+  el.textContent   = text;
+  el.className     = "msg " + (ok ? "msg-ok" : "msg-err");
+  el.style.display = "block";
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function fmtSize(bytes) {
+  if (!bytes)          return "";
+  if (bytes < 1024)    return bytes + " B";
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1048576).toFixed(1) + " MB";
+}
+</script>
+</body>
+</html>
