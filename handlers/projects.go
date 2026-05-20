@@ -18,6 +18,7 @@ import (
 // Rejects abbreviated agency names containing common short-forms or bare dots.
 var abbrevPattern = regexp.MustCompile(`อบต\.?|อบจ\.?|ทต\.?|ทน\.?|ทม\.?|\.$|^\.|\.{2,}`)
 
+// won and closing have been removed; auto-advance via document upload replaces manual doc gates.
 var validStatuses = map[string]bool{
 	"registrator": true,
 	"present":     true,
@@ -26,25 +27,8 @@ var validStatuses = map[string]bool{
 	"quotation":   true,
 	"tor":         true,
 	"contract":    true,
-	"won":         true,
-	"closing":     true,
 	"closed":      true,
 	"reject":      true,
-}
-
-// Single required doc_type per status. Statuses absent from this map have no doc requirement.
-// tor, won, closed, present, demo, site_survey, reject = no doc required.
-var statusDocRequirements = map[string]string{
-	"quotation": "quotation",
-	"contract":  "contract",
-	"closing":   "closing",
-}
-
-var docTypeLabel = map[string]string{
-	"quotation": "ใบเสนอราคา",
-	"tor":       "ร่าง TOR",
-	"contract":  "เอกสารสัญญา",
-	"closing":   "เอกสารปิดงาน",
 }
 
 // Appointment statuses trigger a Google Calendar event when appointment_date is provided.
@@ -69,7 +53,8 @@ const projectCols = `id,
 	created_at,
 	COALESCE(appointment_date::text,''),
 	COALESCE(appointment_note,''),
-	COALESCE(calendar_event_id,'')`
+	COALESCE(calendar_event_id,''),
+	COALESCE(present_type,'')`
 
 func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 	var p models.Project
@@ -80,6 +65,7 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 		&p.Status, &p.StatusNote, &p.RejectReason,
 		&p.CreatedBy, &p.CreatedAt,
 		&p.AppointmentDate, &p.AppointmentNote, &p.CalendarEventID,
+		&p.PresentType,
 	)
 	return p, err
 }
@@ -227,30 +213,21 @@ func UpdateProjectStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
 		return
 	}
-
-	// reject requires a reason
 	if req.Status == "reject" && strings.TrimSpace(req.RejectReason) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุเหตุผลที่ปฏิเสธ"})
 		return
 	}
-
-	// Doc check: verify the single required doc_type is present before the transition.
-	if required, needsCheck := statusDocRequirements[req.Status]; needsCheck {
-		var count int
-		if err := config.DB.QueryRow(context.Background(),
-			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
-			id, required,
-		).Scan(&count); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check documents"})
-			return
-		}
-		if count == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("กรุณาแนบเอกสาร %s ก่อนดำเนินการต่อ", docTypeLabel[required]),
-			})
-			return
-		}
+	// present requires present_type
+	if req.Status == "present" && req.PresentType != "online" && req.PresentType != "onsite" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุรูปแบบ Present (online หรือ onsite)"})
+		return
 	}
+
+	// Fetch old status for logging
+	var oldStatus string
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, id,
+	).Scan(&oldStatus)
 
 	// Google Calendar: fire for appointment statuses when appointment_date is provided.
 	calendarEventID := ""
@@ -262,7 +239,6 @@ func UpdateProjectStatus(c *gin.Context) {
 			 FROM projects WHERE id = $1::uuid`, id,
 		).Scan(&agencyName, &contactPerson, &contactPhone)
 
-		// Look up the acting user's email so they receive a Google Calendar invite.
 		var userEmail string
 		lineID, _ := c.Get("line_id")
 		if lineIDStr, _ := lineID.(string); lineIDStr != "" {
@@ -270,33 +246,39 @@ func UpdateProjectStatus(c *gin.Context) {
 				`SELECT COALESCE(email,'') FROM users WHERE line_id = $1`, lineIDStr,
 			).Scan(&userEmail)
 		}
-
 		attendees := []string{}
 		if userEmail != "" {
 			attendees = []string{userEmail}
 		}
-
 		title := fmt.Sprintf("[Vizzel] %s - %s", statusLabel, agencyName)
 		desc := calendarDescription(contactPerson, contactPhone, req.AppointmentNote)
-
 		if evID, err := CreateCalendarEvent(title, desc, req.AppointmentDate, attendees); err == nil {
 			calendarEventID = evID
 			calendarOK = true
 		}
 	}
 
+	// auto_reject_at: NULL for terminal statuses; 90-day window otherwise
+	autoRejectExpr := `NOW() + INTERVAL '90 days'`
+	if req.Status == "contract" || req.Status == "closed" || req.Status == "reject" {
+		autoRejectExpr = `NULL`
+	}
+
 	tag, err := config.DB.Exec(context.Background(),
-		`UPDATE projects
+		fmt.Sprintf(`UPDATE projects
 		 SET status            = $1,
 		     status_note       = NULLIF($2, ''),
 		     reject_reason     = NULLIF($3, ''),
 		     appointment_date  = NULLIF($4, '')::timestamptz,
 		     appointment_note  = NULLIF($5, ''),
-		     calendar_event_id = NULLIF($6, '')
-		 WHERE id = $7::uuid`,
+		     calendar_event_id = NULLIF($6, ''),
+		     present_type      = NULLIF($7, ''),
+		     last_activity_at  = NOW(),
+		     auto_reject_at    = %s
+		 WHERE id = $8::uuid`, autoRejectExpr),
 		req.Status, req.StatusNote, req.RejectReason,
 		req.AppointmentDate, req.AppointmentNote, calendarEventID,
-		id,
+		req.PresentType, id,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
@@ -307,9 +289,19 @@ func UpdateProjectStatus(c *gin.Context) {
 		return
 	}
 
+	// Log status change
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+	_, _ = config.DB.Exec(context.Background(),
+		`INSERT INTO project_status_logs (project_id, from_status, to_status, changed_by, note)
+		 VALUES ($1::uuid, $2, $3, NULLIF($4,'')::uuid, NULLIF($5,''))`,
+		id, oldStatus, req.Status, userIDStr, req.StatusNote,
+	)
+
 	c.JSON(http.StatusOK, gin.H{
 		"id":                id,
 		"status":            req.Status,
+		"present_type":      req.PresentType,
 		"calendar_event_id": calendarEventID,
 		"calendar_ok":       calendarOK,
 	})

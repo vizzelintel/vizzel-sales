@@ -38,6 +38,7 @@ type Project struct {
 	AppointmentDate string    `json:"appointment_date,omitempty"`
 	AppointmentNote string    `json:"appointment_note,omitempty"`
 	CalendarEventID string    `json:"calendar_event_id,omitempty"`
+	PresentType     string    `json:"present_type,omitempty"`
 }
 
 type Document struct {
@@ -66,8 +67,9 @@ type UpdateProjectStatusRequest struct {
 	Status          string `json:"status" binding:"required"`
 	StatusNote      string `json:"status_note"`
 	RejectReason    string `json:"reject_reason"`
-	AppointmentDate string `json:"appointment_date"` // RFC3339; only for present/demo/site_survey
+	AppointmentDate string `json:"appointment_date"` // RFC3339; for present/demo/site_survey
 	AppointmentNote string `json:"appointment_note"`
+	PresentType     string `json:"present_type"` // "online" or "onsite"; required when status=present
 }
 
 type CreateCompanyRequest struct {
