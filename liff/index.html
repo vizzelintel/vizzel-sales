@@ -145,12 +145,12 @@
     .ov-input { width: 100%; border: 1.5px solid #e5e5ea; border-radius: 10px; padding: 11px 12px; font-size: 15px; font-family: inherit; outline: none; }
     .ov-input:focus { border-color: #06C755; }
     textarea.ov-input { resize: none; height: 90px; }
-    .file-trigger { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1.5px dashed #c7c7cc; border-radius: 10px; cursor: pointer; }
-    .file-trigger.has-file { border-color: #06C755; background: #f0fdf4; }
-    .file-trigger-icon { font-size: 24px; }
-    .file-trigger-text { font-size: 13px; color: #8e8e93; }
-    .file-trigger-name { font-size: 13px; color: #06C755; font-weight: 600; }
-    #file-input { display: none; }
+    /* File pick: input overlaid on button so LINE WebView can trigger it */
+    .file-pick-wrap { position: relative; width: 100%; }
+    .file-pick-btn  { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 15px; border: 1.5px dashed #c7c7cc; border-radius: 10px; background: white; font-size: 15px; font-family: inherit; cursor: pointer; color: #636366; }
+    .file-pick-btn.has-file { border-color: #06C755; background: #f0fdf4; color: #06C755; }
+    .file-pick-inp  { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; } /* font-size:0 hides iOS label */
+    .file-pick-name { margin-top: 8px; font-size: 13px; color: #06C755; font-weight: 600; word-break: break-all; }
     .ov-btn-row { display: flex; gap: 10px; margin-top: 16px; }
     .ov-btn     { flex: 1; padding: 13px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; border: none; }
     .ov-btn-primary { background: #06C755; color: white; }
@@ -282,7 +282,6 @@
   </div>
 </div>
 
-<input type="file" id="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx">
 <div id="province-drop"></div>
 <div class="toast" id="toast"></div>
 
@@ -704,7 +703,10 @@ function openUploadOverlay(projectID) {
 
   document.getElementById("ov-title").textContent = "แนบเอกสาร";
   document.getElementById("ov-sub").textContent   = "เลือกประเภทและไฟล์เอกสาร (PDF, Word, Excel)";
-  document.getElementById("ov-body").innerHTML    = `
+
+  // The <input> is injected inline — not display:none — so LINE's WebView
+  // receives a genuine tap event directly on the input element itself.
+  document.getElementById("ov-body").innerHTML = `
     <div class="ov-section">
       <div class="ov-label">ประเภทเอกสาร *</div>
       <select class="ov-input" id="ov-doctype">
@@ -719,14 +721,16 @@ function openUploadOverlay(projectID) {
     </div>
     <div class="ov-section">
       <div class="ov-label">ไฟล์เอกสาร *</div>
-      <div class="file-trigger" id="file-trigger" onclick="document.getElementById('file-input').click()">
-        <div class="file-trigger-icon">📎</div>
-        <div id="file-trigger-text" class="file-trigger-text">แตะเพื่อเลือกไฟล์</div>
+      <div class="file-pick-wrap">
+        <button type="button" class="file-pick-btn" id="file-pick-btn">📎 เลือกไฟล์</button>
+        <input type="file" class="file-pick-inp" id="file-input"
+               accept=".pdf,.doc,.docx,.xls,.xlsx"
+               onchange="onFileChosen(event)">
       </div>
+      <div class="file-pick-name" id="file-pick-name" style="display:none"></div>
     </div>`;
+
   document.getElementById("ov-confirm").textContent = "อัปโหลด";
-  document.getElementById("file-input").value       = "";
-  document.getElementById("file-input").onchange    = onFileChosen;
   document.getElementById("overlay").classList.add("on");
 }
 
@@ -734,7 +738,6 @@ function onFileChosen(e) {
   const file = e.target.files[0];
   if (!file) return;
 
-  // Client-side extension validation
   const ext = file.name.split(".").pop().toLowerCase();
   if (!["pdf","doc","docx","xls","xlsx"].includes(ext)) {
     toast("รองรับเฉพาะไฟล์ PDF, Word และ Excel เท่านั้น");
@@ -743,11 +746,12 @@ function onFileChosen(e) {
   }
 
   _selectedFile = file;
-  const trigger = document.getElementById("file-trigger");
-  trigger.classList.add("has-file");
-  const textEl = document.getElementById("file-trigger-text");
-  textEl.className   = "file-trigger-name";
-  textEl.textContent = `${file.name}  (${fmtSize(file.size)})`;
+
+  const btn = document.getElementById("file-pick-btn");
+  if (btn) { btn.classList.add("has-file"); btn.textContent = "✓ " + file.name; }
+
+  const nameEl = document.getElementById("file-pick-name");
+  if (nameEl) { nameEl.textContent = fmtSize(file.size); nameEl.style.display = "block"; }
 }
 
 /* ─── Overlay: reject reason ─── */
