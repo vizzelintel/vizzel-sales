@@ -20,11 +20,9 @@ var abbrevPattern = regexp.MustCompile(`อบต\.?|อบจ\.?|ทต\.?|ท�
 
 // won and closing have been removed; auto-advance via document upload replaces manual doc gates.
 var validStatuses = map[string]bool{
-	"register":    true,
-	"present":     true,
-	"demo":        true,
-	"site_survey": true,
-	"quotation":   true,
+	"register":  true,
+	"present":   true,
+	"quotation": true,
 	"tor":         true,
 	"contract":    true,
 	"closed":      true,

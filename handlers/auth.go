@@ -191,7 +191,11 @@ func Register(c *gin.Context) {
 		companyID, req.InviteCode,
 	).Scan(&userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register: " + err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "users_role_check") {
+			errMsg = "ระบบ role ในฐานข้อมูลยังไม่รองรับ dealer — รัน migration 005_pipeline_and_users_role.sql ใน Supabase"
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register: " + errMsg})
 		return
 	}
 

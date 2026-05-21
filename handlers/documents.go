@@ -212,7 +212,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 	var nextStatus string
 	switch docType {
 	case "quotation_support":
-		if currentStatus == "present" || currentStatus == "demo" || currentStatus == "site_survey" {
+		if currentStatus == "present" {
 			nextStatus = "quotation"
 		}
 
