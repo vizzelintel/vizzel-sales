@@ -137,6 +137,113 @@ func CreateAdminCompany(c *gin.Context) {
 	c.JSON(http.StatusCreated, co)
 }
 
+// GetCompanyDetail — admin + support: return one company with members list.
+// Admin sees invite_code; support does not.
+func GetCompanyDetail(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	companyID := c.Param("id")
+
+	var role string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role); err != nil || (role != "admin" && role != "support") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์เข้าถึง"})
+		return
+	}
+
+	var id, name, typ, inviteCode, address, taxID string
+	var createdAt time.Time
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT id::text, name, COALESCE(type,'dealer'), COALESCE(invite_code,''),
+		        COALESCE(address,''), COALESCE(tax_id,''), created_at
+		 FROM companies WHERE id = $1::uuid`, companyID,
+	).Scan(&id, &name, &typ, &inviteCode, &address, &taxID, &createdAt); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "company not found"})
+		return
+	}
+
+	co := gin.H{
+		"id": id, "name": name, "type": typ,
+		"address": address, "tax_id": taxID, "created_at": createdAt,
+	}
+	if role == "admin" {
+		co["invite_code"] = inviteCode
+	}
+
+	// Fetch members
+	rows, err := config.DB.Query(context.Background(),
+		`SELECT id::text, COALESCE(full_name,''), COALESCE(first_name,''), COALESCE(last_name,''),
+		        COALESCE(email,''), COALESCE(phone,''), COALESCE(region,''), COALESCE(role,''), created_at
+		 FROM users WHERE company_id = $1::uuid ORDER BY created_at ASC`, companyID,
+	)
+	if err != nil {
+		co["members"] = []gin.H{}
+		c.JSON(http.StatusOK, co)
+		return
+	}
+	defer rows.Close()
+
+	members := make([]gin.H, 0)
+	for rows.Next() {
+		var mid, fullName, firstName, lastName, email, phone, region, userRole string
+		var memberCreatedAt time.Time
+		if err := rows.Scan(&mid, &fullName, &firstName, &lastName, &email, &phone, &region, &userRole, &memberCreatedAt); err != nil {
+			continue
+		}
+		members = append(members, gin.H{
+			"id": mid, "full_name": fullName, "first_name": firstName, "last_name": lastName,
+			"email": email, "phone": phone, "region": region, "role": userRole, "created_at": memberCreatedAt,
+		})
+	}
+	co["members"] = members
+	c.JSON(http.StatusOK, co)
+}
+
+// UpdateCompanyDetail — admin only: update name, address, tax_id for any company.
+func UpdateCompanyDetail(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	companyID := c.Param("id")
+
+	var role string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role); err != nil || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
+		return
+	}
+
+	var req struct {
+		Name    string `json:"name"`
+		Address string `json:"address"`
+		TaxID   string `json:"tax_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ชื่อบริษัทห้ามว่าง"})
+		return
+	}
+
+	tag, err := config.DB.Exec(context.Background(),
+		`UPDATE companies SET name=$1, address=NULLIF($2,''), tax_id=NULLIF($3,''), updated_at=NOW()
+		 WHERE id=$4::uuid`,
+		req.Name, req.Address, req.TaxID, companyID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update company"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "company not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "อัปเดตบริษัทสำเร็จ"})
+}
+
 func GetCompanies(c *gin.Context) {
 	rows, err := config.DB.Query(context.Background(),
 		`SELECT id, name, COALESCE(tax_id,''), COALESCE(invite_code,''), created_at
