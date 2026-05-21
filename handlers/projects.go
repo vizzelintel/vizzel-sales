@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -197,7 +199,15 @@ func GetProjects(c *gin.Context) {
 	province := strings.TrimSpace(c.Query("province")) // maps to projects.region
 	statusF := strings.TrimSpace(c.Query("status"))
 
-	// Determine caller's role + company_id for scoping
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
 	userID, _ := c.Get("user_id")
 	uid, _ := userID.(string)
 	var callerRole, callerCompanyID string
@@ -205,22 +215,18 @@ func GetProjects(c *gin.Context) {
 		`SELECT COALESCE(role,''), COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, uid,
 	).Scan(&callerRole, &callerCompanyID)
 
-	base := `SELECT ` + projectCols + ` FROM projects`
 	var conditions []string
 	var args []any
 
-	// Dealers see only their own company's projects
 	if callerRole == "dealer" && callerCompanyID != "" {
 		args = append(args, callerCompanyID)
 		conditions = append(conditions, fmt.Sprintf("company_id = $%d::uuid", len(args)))
 	}
-
 	if search != "" {
 		args = append(args, "%"+strings.ToLower(search)+"%")
 		conditions = append(conditions, fmt.Sprintf("LOWER(agency_name) LIKE $%d", len(args)))
 	}
 	if company != "" && callerRole != "dealer" {
-		// Resolve company name → company_id via subquery
 		args = append(args, company)
 		conditions = append(conditions, fmt.Sprintf(
 			`company_id = (SELECT id FROM companies WHERE LOWER(name) = LOWER($%d) LIMIT 1)`, len(args)))
@@ -233,18 +239,49 @@ func GetProjects(c *gin.Context) {
 		args = append(args, province)
 		conditions = append(conditions, fmt.Sprintf("region = $%d", len(args)))
 	}
+	listConditions := append([]string{}, conditions...)
+	listArgs := append([]any{}, args...)
 	if statusF != "" {
-		args = append(args, statusF)
-		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
+		listArgs = append(listArgs, statusF)
+		listConditions = append(listConditions, fmt.Sprintf("status = $%d", len(listArgs)))
 	}
 
-	query := base
+	whereBase := ""
 	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
+		whereBase = " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC"
+	whereList := whereBase
+	if len(listConditions) > len(conditions) {
+		whereList = " WHERE " + strings.Join(listConditions, " AND ")
+	}
 
-	rows, err := config.DB.Query(context.Background(), query, args...)
+	ctx := context.Background()
+	var total int
+	if err := config.DB.QueryRow(ctx, `SELECT COUNT(*) FROM projects`+whereList, listArgs...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count projects"})
+		return
+	}
+
+	statusCounts := map[string]int{}
+	countRows, err := config.DB.Query(ctx,
+		`SELECT COALESCE(status,''), COUNT(*)::int FROM projects`+whereBase+` GROUP BY status`, args...)
+	if err == nil {
+		defer countRows.Close()
+		for countRows.Next() {
+			var st string
+			var n int
+			if countRows.Scan(&st, &n) == nil {
+				statusCounts[st] = n
+			}
+		}
+	}
+
+	offset := (page - 1) * limit
+	pageArgs := append(append([]any{}, listArgs...), limit, offset)
+	query := `SELECT ` + projectCols + ` FROM projects` + whereList +
+		fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, len(listArgs)+1, len(listArgs)+2)
+
+	rows, err := config.DB.Query(ctx, query, pageArgs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch projects"})
 		return
@@ -261,7 +298,19 @@ func GetProjects(c *gin.Context) {
 		projects = append(projects, p)
 	}
 
-	c.JSON(http.StatusOK, projects)
+	totalPages := int(math.Ceil(float64(total) / float64(limit)))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":          projects,
+		"total":          total,
+		"page":           page,
+		"limit":          limit,
+		"total_pages":    totalPages,
+		"status_counts":  statusCounts,
+	})
 }
 
 func GetProject(c *gin.Context) {

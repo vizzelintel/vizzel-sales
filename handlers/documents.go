@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -129,7 +132,8 @@ func CreateDocument(c *gin.Context) {
 		mimeType = ct
 	}
 
-	fileURL, err := uploadToStorage(projectID, header.Filename, mimeType, file)
+	storageKey := storageObjectKey(projectID, header.Filename)
+	fileURL, err := uploadToStorage(storageKey, mimeType, file)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed: " + err.Error()})
 		return
@@ -504,11 +508,30 @@ func GetProjectDocuments(c *gin.Context) {
 	c.JSON(http.StatusOK, docs)
 }
 
+// storageObjectKey builds a safe ASCII path (Supabase rejects Thai/spaces in object keys).
+func storageObjectKey(projectID, originalFilename string) string {
+	ext := strings.ToLower(filepath.Ext(originalFilename))
+	if ext == "" {
+		ext = ".bin"
+	}
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return projectID + "/" + hex.EncodeToString(b) + ext
+}
+
+func encodeStoragePath(key string) string {
+	parts := strings.Split(key, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return strings.Join(parts, "/")
+}
+
 // uploadToStorage uploads a file to Supabase Storage bucket "project-docs"
 // and returns the public URL.
 // Upload endpoint: POST {SUPABASE_URL}/storage/v1/object/project-docs/{path}
 // Authorization:   Bearer {SUPABASE_SERVICE_KEY}
-func uploadToStorage(projectID, filename, contentType string, r io.Reader) (string, error) {
+func uploadToStorage(storageKey, contentType string, r io.Reader) (string, error) {
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	serviceKey := os.Getenv("SUPABASE_SERVICE_KEY")
 
@@ -524,7 +547,7 @@ func uploadToStorage(projectID, filename, contentType string, r io.Reader) (stri
 		return "", fmt.Errorf("env vars not set: %s", strings.Join(missing, ", "))
 	}
 
-	uploadURL := fmt.Sprintf("%s/storage/v1/object/project-docs/%s", supabaseURL, filename)
+	uploadURL := fmt.Sprintf("%s/storage/v1/object/project-docs/%s", supabaseURL, encodeStoragePath(storageKey))
 
 	req, err := http.NewRequest(http.MethodPost, uploadURL, r)
 	if err != nil {
@@ -545,5 +568,5 @@ func uploadToStorage(projectID, filename, contentType string, r io.Reader) (stri
 		return "", fmt.Errorf("storage %d: %s", resp.StatusCode, body)
 	}
 
-	return fmt.Sprintf("%s/storage/v1/object/public/project-docs/%s", supabaseURL, filename), nil
+	return fmt.Sprintf("%s/storage/v1/object/public/project-docs/%s", supabaseURL, encodeStoragePath(storageKey)), nil
 }
