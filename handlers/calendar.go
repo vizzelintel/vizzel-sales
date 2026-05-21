@@ -41,7 +41,7 @@ func CreateCalendarEvent(title, description, datetimeRFC3339 string, attendees [
 
 	var sa serviceAccountKey
 	if err := json.Unmarshal([]byte(credsJSON), &sa); err != nil {
-		return "", fmt.Errorf("parse credentials JSON: %w", err)
+		return "", fmt.Errorf("GOOGLE_CALENDAR_CREDENTIALS_JSON invalid: %w", err)
 	}
 	if sa.TokenURI == "" {
 		sa.TokenURI = "https://oauth2.googleapis.com/token"

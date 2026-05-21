@@ -314,46 +314,14 @@ func UpdateProjectStatus(c *gin.Context) {
 			 FROM projects WHERE id = $1::uuid`, id,
 		).Scan(&agencyName, &contactPerson, &contactPhone)
 
-		var userEmail string
-		lineID, _ := c.Get("line_id")
-		if lineIDStr, _ := lineID.(string); lineIDStr != "" {
-			_ = config.DB.QueryRow(context.Background(),
-				`SELECT COALESCE(email,'') FROM users WHERE line_id = $1`, lineIDStr,
-			).Scan(&userEmail)
-		}
-		attendees := []string{}
-		if userEmail != "" {
-			attendees = []string{userEmail}
-		}
-		title := fmt.Sprintf("[Vizzel] %s - %s", statusLabel, agencyName)
-		desc := calendarDescription(contactPerson, contactPhone, req.AppointmentNote)
-		if evID, err := CreateCalendarEvent(title, desc, req.AppointmentDate, attendees); err == nil {
-			calendarEventID = evID
-			calendarOK = true
-			calendarMessage = "บันทึกนัดหมายใน Google Calendar แล้ว"
-		} else {
-			calendarMessage = "ไม่สามารถบันทึก Google Calendar ได้: " + err.Error()
-		}
-
 		startAt, parseErr := time.Parse(time.RFC3339, req.AppointmentDate)
 		if parseErr != nil {
-			calendarMailMessage = "รูปแบบวันเวลานัดหมายไม่ถูกต้อง"
-		} else if userEmail == "" {
-			calendarMailMessage = "ไม่พบอีเมลผู้ใช้งานสำหรับส่งคำเชิญปฏิทิน"
-		} else if err := SendCalendarInviteEmail(userEmail, agencyName, statusLabel, req.AppointmentNote, startAt, id); err == nil {
-			calendarMailOK = true
-			if calendarMessage == "" {
-				calendarMessage = "ส่งคำเชิญปฏิทินทางอีเมลแล้ว"
-			}
+			calendarMessage = "รูปแบบวันเวลานัดหมายไม่ถูกต้อง"
 		} else {
-			calendarMailMessage = "ส่งคำเชิญปฏิทินทางอีเมลไม่สำเร็จ: " + err.Error()
-		}
-
-		if !calendarOK && !calendarMailOK {
-			if calendarMailMessage != "" {
-				calendarMessage = calendarMailMessage
-			}
-			if calendarMessage == "" {
+			calendarEventID, calendarOK, calendarMessage, calendarMailOK = scheduleAppointmentNotifications(
+				c, id, statusLabel, agencyName, contactPerson, contactPhone, req.AppointmentNote, startAt,
+			)
+			if !calendarOK && !calendarMailOK && calendarMessage == "" {
 				calendarMessage = "ไม่สามารถบันทึกปฏิทินได้"
 			}
 		}
@@ -398,6 +366,14 @@ func UpdateProjectStatus(c *gin.Context) {
 		 VALUES ($1::uuid, $2, $3, NULLIF($4,'')::uuid, NULLIF($5,''))`,
 		id, oldStatus, req.Status, userIDStr, req.StatusNote,
 	)
+
+	if req.AppointmentDate != "" {
+		if _, isAppt := appointmentStatusLabel[req.Status]; isAppt {
+			if startAt, err := time.Parse(time.RFC3339, req.AppointmentDate); err == nil {
+				upsertProjectAppointmentRow(context.Background(), id, req.Status, userIDStr, req.PresentType, calendarEventID, startAt, req.AppointmentNote)
+			}
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":                    id,

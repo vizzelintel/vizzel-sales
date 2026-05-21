@@ -14,7 +14,7 @@ Single-environment deployment (production only).
 - [ ] `SUPABASE_DB_URL` is set in Fly secrets.
 - [ ] `SUPABASE_URL` is set in Fly secrets.
 - [ ] `SUPABASE_SERVICE_KEY` is set in Fly secrets.
-- [ ] Required migrations are applied.
+- [ ] Required migrations are applied (including `004_project_appointments.sql`).
 - [ ] DB connectivity check passes from backend (`/health` + startup logs).
 
 ## 3) Fly.io (Backend)

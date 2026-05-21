@@ -70,6 +70,8 @@ func main() {
 		api.GET("/projects/:id", handlers.GetProject)
 		api.PUT("/projects/:id", handlers.UpdateProject)
 		api.PUT("/projects/:id/status", handlers.UpdateProjectStatus)
+		api.GET("/projects/:id/appointments", handlers.GetProjectAppointments)
+		api.PUT("/projects/:id/appointments/:type", handlers.UpsertProjectAppointment)
 		api.GET("/projects/:id/documents", handlers.GetProjectDocuments)
 
 		api.GET("/companies", handlers.GetCompanies)
