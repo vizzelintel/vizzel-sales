@@ -41,10 +41,15 @@ Optional for Calendar integration:
 
 Use `.env.example` as the canonical template for production setup.
 
+## Frontend
+
+The production LIFF UI lives in the separate repo `vizzel-frontend` (GitHub Pages). This backend repo does not embed a frontend app.
+
 ## Run Locally
 
 ```bash
 go mod tidy
+go test ./...
 go run main.go
 ```
 

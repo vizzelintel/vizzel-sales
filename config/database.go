@@ -39,7 +39,3 @@ func InitDB() {
 	DB = pool
 	log.Println("Connected to Supabase PostgreSQL")
 }
-
-func GetDB() *pgxpool.Pool {
-	return DB
-}

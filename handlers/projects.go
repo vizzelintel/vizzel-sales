@@ -192,16 +192,20 @@ func CreateProject(c *gin.Context) {
 	go SyncProjectToLark(project)
 }
 
+func normalizeProjectsScope(scope string) string {
+	if strings.TrimSpace(scope) == "pipeline" {
+		return "pipeline"
+	}
+	return "directory"
+}
+
 func GetProjects(c *gin.Context) {
 	search := strings.TrimSpace(c.Query("search"))
 	company := strings.TrimSpace(c.Query("company")) // company name filter
 	agencyType := strings.TrimSpace(c.Query("agency_type"))
 	province := strings.TrimSpace(c.Query("province")) // maps to projects.region
 	statusF := strings.TrimSpace(c.Query("status"))
-	scope := strings.TrimSpace(c.DefaultQuery("scope", "directory"))
-	if scope != "pipeline" && scope != "directory" {
-		scope = "directory"
-	}
+	scope := normalizeProjectsScope(c.DefaultQuery("scope", "directory"))
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
