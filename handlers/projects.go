@@ -151,6 +151,7 @@ func CreateProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, project)
+	go SyncProjectToLark(project)
 }
 
 func GetProjects(c *gin.Context) {
@@ -350,6 +351,14 @@ func UpdateProjectStatus(c *gin.Context) {
 		"calendar_event_id": calendarEventID,
 		"calendar_ok":       calendarOK,
 	})
+	// Sync updated project to Lark in background
+	go func() {
+		if p, err := scanProject(config.DB.QueryRow(context.Background(),
+			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id,
+		)); err == nil {
+			SyncProjectToLark(p)
+		}
+	}()
 }
 
 // UpdateProject handles PUT /api/v1/projects/:id for partial field updates
@@ -408,6 +417,14 @@ func UpdateProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"id": id, "detail_note": note})
+	// Sync updated project to Lark in background
+	go func() {
+		if p, err := scanProject(config.DB.QueryRow(context.Background(),
+			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id,
+		)); err == nil {
+			SyncProjectToLark(p)
+		}
+	}()
 }
 
 func calendarDescription(contactPerson, contactPhone, note string) string {

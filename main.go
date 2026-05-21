@@ -74,6 +74,7 @@ func main() {
 
 		api.GET("/admin/companies", handlers.ListAdminCompanies)
 		api.POST("/admin/companies", handlers.CreateAdminCompany)
+		api.POST("/admin/sync-lark", handlers.SyncAllProjectsToLark)
 
 		api.POST("/documents", handlers.CreateDocument)
 		api.DELETE("/documents/:id", handlers.DeleteDocument)

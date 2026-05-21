@@ -67,5 +67,15 @@ func runAutoReject() {
 		`, p.id, p.status)
 
 		log.Printf("[CRON] Auto-rejected project %s (%s)\n", p.id, p.name)
+
+		// Sync rejected project to Lark in background
+		pid := p.id
+		go func() {
+			if proj, err := scanProject(config.DB.QueryRow(ctx,
+				`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, pid,
+			)); err == nil {
+				SyncProjectToLark(proj)
+			}
+		}()
 	}
 }

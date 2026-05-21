@@ -272,6 +272,15 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 	)
 
 	fmt.Printf("[STATUS] advanced project=%s %s→%s\n", projectID, currentStatus, nextStatus)
+
+	// Sync updated project to Lark in background
+	go func() {
+		if p, err := scanProject(config.DB.QueryRow(ctx,
+			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, projectID,
+		)); err == nil {
+			SyncProjectToLark(p)
+		}
+	}()
 }
 
 // DeleteDocument removes a document record and its stored file.
