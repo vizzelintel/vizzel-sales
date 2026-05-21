@@ -279,7 +279,7 @@ func syncProjectToLarkCore(p models.Project) error {
 	}
 
 	baseFields := buildLarkFields(p, companyName)
-	fullFields, baseOnly := mergeLarkExtraFields(p.ID, baseFields)
+	fullFields, baseOnly := mergeLarkExtraFields(p.ID, baseFields, p.DetailNote)
 	recordID := strings.TrimSpace(p.LarkRecordID)
 	if recordID == "" {
 		recordID = loadLarkRecordID(p.ID)

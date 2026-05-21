@@ -22,6 +22,7 @@ const (
 	larkColSurveyNote       = "หมายเหตุ Site Survey"
 	larkColApptSummary      = "สรุปนัดหมาย"
 	larkColDocuments        = "เอกสาร"
+	larkColDetailNote       = "รายละเอียดเพิ่มเติม"
 )
 
 var larkDocLabels = map[string]string{
@@ -206,6 +207,14 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 	return fields
 }
 
+func buildLarkDetailNoteField(detailNote string) map[string]interface{} {
+	note := strings.TrimSpace(detailNote)
+	if note == "" {
+		note = "—"
+	}
+	return map[string]interface{}{larkColDetailNote: note}
+}
+
 func buildLarkDocumentFields(projectID string) map[string]interface{} {
 	docs := loadLarkDocuments(projectID)
 	var lines []string
@@ -227,13 +236,16 @@ func buildLarkDocumentFields(projectID string) map[string]interface{} {
 	return map[string]interface{}{larkColDocuments: text}
 }
 
-func mergeLarkExtraFields(projectID string, base map[string]interface{}) (full, baseOnly map[string]interface{}) {
+func mergeLarkExtraFields(projectID string, base map[string]interface{}, detailNote string) (full, baseOnly map[string]interface{}) {
 	baseOnly = base
 	if !larkExtrasEnabled() {
 		return baseOnly, baseOnly
 	}
 	full = make(map[string]interface{}, len(base)+16)
 	for k, v := range base {
+		full[k] = v
+	}
+	for k, v := range buildLarkDetailNoteField(detailNote) {
 		full[k] = v
 	}
 	for k, v := range buildLarkAppointmentFields(projectID) {
@@ -274,7 +286,7 @@ func SyncProjectToLarkByID(projectID string) {
 func RecommendedLarkColumns() []string {
 	return []string{
 		"ชื่อหน่วยงาน", "ประเภทหน่วยงาน", "จังหวัด", "ผู้ติดต่อ", "โทรศัพท์",
-		"บริษัท Dealer", "สถานะ", "Project ID", "วันที่สร้าง",
+		"บริษัท Dealer", "สถานะ", "รายละเอียดเพิ่มเติม", "Project ID", "วันที่สร้าง",
 		larkColApptPresentDate, larkColPresentType, larkColPresentNote,
 		larkColApptDemoDate, larkColDemoNote,
 		larkColApptSurveyDate, larkColSurveyNote,
