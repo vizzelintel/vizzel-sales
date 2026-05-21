@@ -18,16 +18,12 @@ import (
 	"vizzel-backend/models"
 )
 
-// retroactiveDocs: can be re-uploaded after deletion; do NOT drive status advance.
-var retroactiveDocs = map[string]bool{
+// singleUploadDocs: one upload per project (can be re-uploaded only after deletion).
+var singleUploadDocs = map[string]bool{
 	"quotation_support": true,
 	"quotation_dealer":  true,
 	"tor_support":       true,
 	"tor_dealer":        true,
-}
-
-// primaryFlowDocs: drive status advance; only one per project.
-var primaryFlowDocs = map[string]bool{
 	"contract": true,
 	"closing":  true,
 }
@@ -77,20 +73,10 @@ func CreateDocument(c *gin.Context) {
 		projectID, docType,
 	).Scan(&existingCount)
 
-	if retroactiveDocs[docType] {
-		// Retroactive types: allow only when count = 0 (i.e. deleted or never uploaded).
-		// They do NOT trigger status advance — just store the file.
+	if singleUploadDocs[docType] {
 		if existingCount >= 1 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "เอกสารประเภทนี้มีอยู่แล้ว กรุณาลบก่อนแนบใหม่",
-			})
-			return
-		}
-	} else if primaryFlowDocs[docType] {
-		// Primary flow types: one per project, drive status advance.
-		if existingCount >= 1 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "แนบเอกสารประเภทนี้ครบแล้ว (สูงสุด 1 ครั้ง)",
 			})
 			return
 		}
@@ -110,6 +96,21 @@ func CreateDocument(c *gin.Context) {
 	}
 	defer file.Close()
 
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	// Only support/admin can upload closing document.
+	if docType == "closing" {
+		var uploaderRole string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, userIDStr,
+		).Scan(&uploaderRole)
+		if uploaderRole != "support" && uploaderRole != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "เฉพาะ support/admin เท่านั้นที่ปิดงานได้"})
+			return
+		}
+	}
+
 	// Validate file extension
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	mimeType, ok := allowedExts[ext]
@@ -127,9 +128,6 @@ func CreateDocument(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed: " + err.Error()})
 		return
 	}
-
-	userID, _ := c.Get("user_id")
-	userIDStr, _ := userID.(string)
 
 	var doc models.Document
 	err = config.DB.QueryRow(context.Background(),
@@ -149,9 +147,20 @@ func CreateDocument(c *gin.Context) {
 		return
 	}
 
-	// Only primary-flow and site_survey uploads trigger status advance.
-	// Retroactive uploads (after deletion) just store the file.
-	if !retroactiveDocs[docType] {
+	// Any upload is activity: reset 90-day timer for non-terminal statuses.
+	_, _ = config.DB.Exec(context.Background(),
+		`UPDATE projects
+		 SET last_activity_at = NOW(),
+		     auto_reject_at = CASE
+		       WHEN status IN ('contract','closed','reject') THEN NULL
+		       ELSE NOW() + INTERVAL '90 days'
+		     END
+		 WHERE id = $1::uuid`,
+		projectID,
+	)
+
+	// site_survey is informational only; other document types may advance status.
+	if docType != "site_survey" {
 		autoAdvanceStatus(projectID, docType, userIDStr)
 	}
 
@@ -215,8 +224,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 				nextStatus = "tor"
 			} else {
 				// Dealer-created project: also need tor_dealer.
-				// When role is unset (empty), treat as support path for safety.
-				if countDocs("tor_dealer") >= 1 || !ownerIsSupport {
+				if countDocs("tor_dealer") >= 1 {
 					nextStatus = "tor"
 				}
 			}
@@ -288,15 +296,17 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 func DeleteDocument(c *gin.Context) {
 	docID := c.Param("id")
 	ctx   := context.Background()
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
 
 	// Fetch document and its project status in one query
-	var projectStatus, fileURL string
+	var projectStatus, fileURL, projectID, docType string
 	err := config.DB.QueryRow(ctx, `
-		SELECT p.status, d.file_url
+		SELECT p.status, d.file_url, d.project_id::text, COALESCE(d.doc_type,'')
 		FROM documents d
 		JOIN projects p ON p.id = d.project_id
 		WHERE d.id = $1::uuid`, docID,
-	).Scan(&projectStatus, &fileURL)
+	).Scan(&projectStatus, &fileURL, &projectID, &docType)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
@@ -324,7 +334,98 @@ func DeleteDocument(c *gin.Context) {
 		return
 	}
 
+	reconcileProjectStatusAfterDocumentDelete(projectID, docType, userIDStr)
+
 	c.JSON(http.StatusOK, gin.H{"message": "ลบเอกสารสำเร็จ"})
+}
+
+func reconcileProjectStatusAfterDocumentDelete(projectID, deletedDocType, userID string) {
+	ctx := context.Background()
+
+	var currentStatus, createdBy string
+	if err := config.DB.QueryRow(ctx,
+		`SELECT COALESCE(status,''), COALESCE(created_by::text,'')
+		 FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&currentStatus, &createdBy); err != nil {
+		return
+	}
+
+	ownerIsSupport := false
+	if createdBy != "" {
+		var ownerRole string
+		if err := config.DB.QueryRow(ctx,
+			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, createdBy,
+		).Scan(&ownerRole); err == nil {
+			ownerIsSupport = ownerRole == "support" || ownerRole == "admin"
+		}
+	}
+
+	countDocs := func(dtype string) int {
+		var n int
+		_ = config.DB.QueryRow(ctx,
+			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
+			projectID, dtype,
+		).Scan(&n)
+		return n
+	}
+
+	quotationSupport := countDocs("quotation_support")
+	torSupport := countDocs("tor_support")
+	torDealer := countDocs("tor_dealer")
+	contractDocs := countDocs("contract")
+	closingDocs := countDocs("closing")
+
+	newStatus := currentStatus
+	switch {
+	case contractDocs > 0 && closingDocs > 0:
+		newStatus = "closed"
+	case contractDocs > 0:
+		newStatus = "contract"
+	case torSupport > 0 && (ownerIsSupport || torDealer > 0):
+		newStatus = "tor"
+	case quotationSupport > 0:
+		newStatus = "quotation"
+	default:
+		// If downstream doc gates are no longer met, roll back to present.
+		if currentStatus == "quotation" || currentStatus == "tor" || currentStatus == "contract" || currentStatus == "closed" {
+			newStatus = "present"
+		}
+	}
+
+	if newStatus == currentStatus {
+		return
+	}
+
+	autoRejectExpr := `NOW() + INTERVAL '90 days'`
+	if newStatus == "contract" || newStatus == "closed" || newStatus == "reject" {
+		autoRejectExpr = `NULL`
+	}
+
+	if _, err := config.DB.Exec(ctx,
+		fmt.Sprintf(`UPDATE projects
+		 SET status = $1,
+		     last_activity_at = NOW(),
+		     auto_reject_at = %s
+		 WHERE id = $2::uuid`, autoRejectExpr),
+		newStatus, projectID,
+	); err != nil {
+		return
+	}
+
+	_, _ = config.DB.Exec(ctx,
+		`INSERT INTO project_status_logs (project_id, from_status, to_status, changed_by, note)
+		 VALUES ($1::uuid, $2, $3, NULLIF($4,'')::uuid, $5)`,
+		projectID, currentStatus, newStatus, userID,
+		"ปรับสถานะอัตโนมัติหลังลบเอกสาร: "+deletedDocType,
+	)
+
+	go func() {
+		if p, err := scanProject(config.DB.QueryRow(ctx,
+			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, projectID,
+		)); err == nil {
+			SyncProjectToLark(p)
+		}
+	}()
 }
 
 // deleteFromStorage removes a file from Supabase Storage.

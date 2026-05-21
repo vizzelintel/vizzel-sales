@@ -447,7 +447,7 @@ $liff = @'
 
 <script>
 const LIFF_ID = "YOUR_LIFF_ID_HERE"; // ← เปลี่ยนเป็น LIFF ID จริง
-const API = "https://vizzel-sales-production.up.railway.app";
+const API = "https://vizzel-sales-api.fly.dev";
 let token = "";
 
 async function init() {
@@ -536,10 +536,10 @@ git push
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
-Write-Host "DONE! Railway กำลัง redeploy อัตโนมัติ" -ForegroundColor Green
-Write-Host "URL: https://vizzel-sales-production.up.railway.app" -ForegroundColor Yellow
+Write-Host "DONE! Fly.io กำลัง deploy อัตโนมัติ" -ForegroundColor Green
+Write-Host "URL: https://vizzel-sales-api.fly.dev" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "ขั้นตอนต่อไป (ทำใน LINE Developers Console):" -ForegroundColor Cyan
-Write-Host "1. Webhook URL: https://vizzel-sales-production.up.railway.app/api/v1/webhook" -ForegroundColor White
+Write-Host "1. Webhook URL: https://vizzel-sales-api.fly.dev/api/v1/webhook" -ForegroundColor White
 Write-Host "2. สร้าง LIFF App -> ได้ LIFF ID -> ใส่ใน liff/index.html" -ForegroundColor White
 Write-Host "============================================" -ForegroundColor Green

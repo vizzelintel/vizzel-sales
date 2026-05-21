@@ -53,7 +53,7 @@ func getLarkAccessToken() (string, error) {
 }
 
 var larkStatusLabels = map[string]string{
-	"registrator": "Registrator",
+	"register":    "Register",
 	"present":     "Present",
 	"demo":        "Demo",
 	"site_survey": "Site Survey",

@@ -20,7 +20,7 @@ var abbrevPattern = regexp.MustCompile(`อบต\.?|อบจ\.?|ทต\.?|ท�
 
 // won and closing have been removed; auto-advance via document upload replaces manual doc gates.
 var validStatuses = map[string]bool{
-	"registrator": true,
+	"register":    true,
 	"present":     true,
 	"demo":        true,
 	"site_survey": true,
@@ -46,7 +46,7 @@ const projectCols = `id,
 	COALESCE(contact_person,''),
 	COALESCE(contact_position,''),
 	COALESCE(contact_phone,''),
-	COALESCE(status,'registrator'),
+	COALESCE(status,'register'),
 	COALESCE(status_note,''),
 	COALESCE(reject_reason,''),
 	COALESCE(created_by::text,''),
@@ -130,7 +130,7 @@ func CreateProject(c *gin.Context) {
 			 status, company_id, created_by, created_at,
 			 auto_reject_at)
 		 VALUES ($1, NULLIF($2,''), $3, $4, $5, $6,
-		         'registrator', NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9,
+		         'register', NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9,
 		         NOW() + INTERVAL '90 days')
 		 RETURNING `+projectCols,
 		req.AgencyName, req.AgencyType, req.Region,
@@ -274,6 +274,10 @@ func UpdateProjectStatus(c *gin.Context) {
 	_ = config.DB.QueryRow(context.Background(),
 		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, id,
 	).Scan(&oldStatus)
+	if oldStatus == "closed" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่สามารถเปลี่ยนสถานะได้ เนื่องจากงานปิดแล้ว"})
+		return
+	}
 
 	// Google Calendar: fire for appointment statuses when appointment_date is provided.
 	calendarEventID := ""

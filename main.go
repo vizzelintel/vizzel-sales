@@ -23,8 +23,7 @@ func main() {
 	r.MaxMultipartMemory = 8 << 20 // 8 MB max for file uploads
 
 	allowedOrigins := map[string]bool{
-		"https://vizzelintel.github.io":                    true,
-		"https://vizzel-sales-production.up.railway.app": true,
+		"https://vizzelintel.github.io": true,
 	}
 	r.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
