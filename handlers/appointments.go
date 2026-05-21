@@ -42,13 +42,32 @@ func GetProjectAppointments(c *gin.Context) {
 	defer rows.Close()
 
 	list := []projectAppointment{}
+	hasPresent := false
 	for rows.Next() {
 		var a projectAppointment
 		if err := rows.Scan(&a.Type, &a.ScheduledAt, &a.Note, &a.PresentType, &a.CalendarEventID); err != nil {
 			continue
 		}
+		if a.Type == "present" {
+			hasPresent = true
+		}
 		list = append(list, a)
 	}
+
+	// Legacy projects may only have appointment_date on projects row (pre-migration).
+	if !hasPresent {
+		var legacyAt, legacyNote, legacyPresent string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT COALESCE(appointment_date::text,''), COALESCE(appointment_note,''), COALESCE(present_type,'')
+			 FROM projects WHERE id = $1::uuid`, projectID,
+		).Scan(&legacyAt, &legacyNote, &legacyPresent)
+		if strings.TrimSpace(legacyAt) != "" {
+			list = append([]projectAppointment{{
+				Type: "present", ScheduledAt: legacyAt, Note: legacyNote, PresentType: legacyPresent,
+			}}, list...)
+		}
+	}
+
 	c.JSON(http.StatusOK, list)
 }
 
