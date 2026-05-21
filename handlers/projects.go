@@ -198,6 +198,10 @@ func GetProjects(c *gin.Context) {
 	agencyType := strings.TrimSpace(c.Query("agency_type"))
 	province := strings.TrimSpace(c.Query("province")) // maps to projects.region
 	statusF := strings.TrimSpace(c.Query("status"))
+	scope := strings.TrimSpace(c.DefaultQuery("scope", "directory"))
+	if scope != "pipeline" && scope != "directory" {
+		scope = "directory"
+	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
@@ -218,7 +222,8 @@ func GetProjects(c *gin.Context) {
 	var conditions []string
 	var args []any
 
-	if callerRole == "dealer" && callerCompanyID != "" {
+	// Dealer sees only own company on Pipeline; Projects directory shows all companies.
+	if scope == "pipeline" && callerRole == "dealer" && callerCompanyID != "" {
 		args = append(args, callerCompanyID)
 		conditions = append(conditions, fmt.Sprintf("company_id = $%d::uuid", len(args)))
 	}
@@ -276,10 +281,15 @@ func GetProjects(c *gin.Context) {
 		}
 	}
 
+	orderBy := ` ORDER BY created_at DESC`
+	if scope == "pipeline" {
+		orderBy = ` ORDER BY COALESCE(last_activity_at, created_at) DESC`
+	}
+
 	offset := (page - 1) * limit
 	pageArgs := append(append([]any{}, listArgs...), limit, offset)
-	query := `SELECT ` + projectCols + ` FROM projects` + whereList +
-		fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, len(listArgs)+1, len(listArgs)+2)
+	query := `SELECT ` + projectCols + ` FROM projects` + whereList + orderBy +
+		fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(listArgs)+1, len(listArgs)+2)
 
 	rows, err := config.DB.Query(ctx, query, pageArgs...)
 	if err != nil {
