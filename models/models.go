@@ -81,7 +81,13 @@ type UpdateProjectStatusRequest struct {
 
 // UpdateProjectRequest is used by PUT /projects/:id for partial field updates.
 type UpdateProjectRequest struct {
-	DetailNote *string `json:"detail_note"`
+	AgencyName      *string `json:"agency_name"`
+	AgencyType      *string `json:"agency_type"`
+	Region          *string `json:"region"`
+	ContactPerson   *string `json:"contact_person"`
+	ContactPosition *string `json:"contact_position"`
+	ContactPhone    *string `json:"contact_phone"`
+	DetailNote      *string `json:"detail_note"`
 }
 
 type CreateCompanyRequest struct {

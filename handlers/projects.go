@@ -409,8 +409,8 @@ func UpdateProjectStatus(c *gin.Context) {
 	}()
 }
 
-// UpdateProject handles PUT /api/v1/projects/:id for partial field updates
-// (currently: detail_note only). Returns 403 if the project is closed.
+// UpdateProject handles PUT /api/v1/projects/:id for partial field updates.
+// Returns 403 if the project is closed.
 func UpdateProject(c *gin.Context) {
 	id := c.Param("id")
 
@@ -419,22 +419,14 @@ func UpdateProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.DetailNote == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
-		return
-	}
 
-	note := *req.DetailNote
-	if len([]rune(note)) > 2000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "รายละเอียดต้องไม่เกิน 2000 ตัวอักษร"})
-		return
-	}
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
 
-	// Fetch current status to enforce closed-project lock
-	var currentStatus string
+	var currentStatus, companyID string
 	if err := config.DB.QueryRow(context.Background(),
-		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, id,
-	).Scan(&currentStatus); err != nil {
+		`SELECT COALESCE(status,''), COALESCE(company_id::text,'') FROM projects WHERE id = $1::uuid`, id,
+	).Scan(&currentStatus, &companyID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		} else {
@@ -447,15 +439,101 @@ func UpdateProject(c *gin.Context) {
 		return
 	}
 
-	autoRejectReset := ""
-	if currentStatus != "contract" && currentStatus != "closed" && currentStatus != "reject" {
-		autoRejectReset = ", auto_reject_at = NOW() + INTERVAL '90 days'"
+	var callerRole, callerCompanyID string
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,''), COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&callerRole, &callerCompanyID)
+	if callerRole == "dealer" && callerCompanyID != "" && companyID != callerCompanyID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์แก้ไขโครงการนี้"})
+		return
 	}
-	tag, err := config.DB.Exec(context.Background(),
-		`UPDATE projects SET detail_note = NULLIF($1,''), last_activity_at = NOW()`+autoRejectReset+` WHERE id = $2::uuid`,
-		note, id,
-	)
+
+	sets := []string{"last_activity_at = NOW()"}
+	args := []any{}
+	n := 0
+	addSet := func(col string, val interface{}) {
+		n++
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, n))
+		args = append(args, val)
+	}
+
+	if req.AgencyName != nil {
+		name := strings.TrimSpace(*req.AgencyName)
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณากรอกชื่อหน่วยงาน"})
+			return
+		}
+		if abbrevPattern.MatchString(name) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาใส่ชื่อหน่วยงานแบบเต็ม ไม่ใช้ตัวย่อหรือจุด (.) ในชื่อ"})
+			return
+		}
+		var existingID string
+		dupErr := config.DB.QueryRow(context.Background(),
+			`SELECT id::text FROM projects
+			 WHERE LOWER(TRIM(agency_name)) = LOWER(TRIM($1))
+			   AND status IS DISTINCT FROM 'reject'
+			   AND id <> $2::uuid
+			 LIMIT 1`,
+			name, id,
+		).Scan(&existingID)
+		if dupErr == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":               "มีโครงการชื่อนี้อยู่แล้ว สร้างใหม่ได้เมื่อโครงการเดิมเป็น Reject เท่านั้น",
+				"existing_project_id": existingID,
+			})
+			return
+		}
+		if !errors.Is(dupErr, pgx.ErrNoRows) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check duplicate"})
+			return
+		}
+		addSet("agency_name", name)
+	}
+	if req.AgencyType != nil {
+		addSet("agency_type", strings.TrimSpace(*req.AgencyType))
+	}
+	if req.Region != nil {
+		addSet("region", strings.TrimSpace(*req.Region))
+	}
+	if req.ContactPerson != nil {
+		addSet("contact_person", strings.TrimSpace(*req.ContactPerson))
+	}
+	if req.ContactPosition != nil {
+		addSet("contact_position", strings.TrimSpace(*req.ContactPosition))
+	}
+	if req.ContactPhone != nil {
+		addSet("contact_phone", strings.TrimSpace(*req.ContactPhone))
+	}
+	if req.DetailNote != nil {
+		note := *req.DetailNote
+		if len([]rune(note)) > 2000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "รายละเอียดต้องไม่เกิน 2000 ตัวอักษร"})
+			return
+		}
+		addSet("detail_note", note)
+	}
+
+	if n == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+		return
+	}
+
+	if currentStatus != "contract" && currentStatus != "closed" && currentStatus != "reject" {
+		sets = append(sets, "auto_reject_at = NOW() + INTERVAL '90 days'")
+	}
+
+	n++
+	args = append(args, id)
+	query := fmt.Sprintf(`UPDATE projects SET %s WHERE id = $%d::uuid`, strings.Join(sets, ", "), n)
+	tag, err := config.DB.Exec(context.Background(), query, args...)
 	if err != nil {
+		if strings.Contains(err.Error(), "23505") &&
+			strings.Contains(err.Error(), "idx_projects_agency_name_active") {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "มีโครงการชื่อนี้อยู่แล้ว สร้างใหม่ได้เมื่อโครงการเดิมเป็น Reject เท่านั้น",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update project"})
 		return
 	}
@@ -464,15 +542,16 @@ func UpdateProject(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"id": id, "detail_note": note})
-	// Sync updated project to Lark in background
-	go func() {
-		if p, err := scanProject(config.DB.QueryRow(context.Background(),
-			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id,
-		)); err == nil {
-			SyncProjectToLark(p)
-		}
-	}()
+	p, err := scanProject(config.DB.QueryRow(context.Background(),
+		`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id,
+	))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch updated project"})
+		return
+	}
+
+	c.JSON(http.StatusOK, p)
+	go SyncProjectToLark(p)
 }
 
 func calendarDescription(contactPerson, contactPhone, note string) string {
