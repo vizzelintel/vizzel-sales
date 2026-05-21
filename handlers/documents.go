@@ -32,8 +32,9 @@ var singleUploadDocs = map[string]bool{
 	"closing":           true,
 }
 
-// site_survey allows up to 3 uploads.
+// site_survey allows up to 3 uploads; attachment (supplementary) up to 5.
 const siteSurveyLimit = 3
+const attachmentLimit = 5
 
 // roleMayUploadDocType enforces who may upload each document type.
 func roleMayUploadDocType(role, docType string) bool {
@@ -41,7 +42,7 @@ func roleMayUploadDocType(role, docType string) bool {
 	switch docType {
 	case "quotation_support", "tor_support", "closing":
 		return staff
-	case "quotation_dealer", "tor_dealer", "contract", "site_survey":
+	case "quotation_dealer", "tor_dealer", "contract", "site_survey", "attachment":
 		return true
 	default:
 		return false
@@ -76,6 +77,7 @@ func CreateDocument(c *gin.Context) {
 		"contract":          true,
 		"closing":           true,
 		"site_survey":       true,
+		"attachment":        true,
 	}
 	if !validDocTypes[docType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ประเภทเอกสารไม่ถูกต้อง"})
@@ -97,6 +99,12 @@ func CreateDocument(c *gin.Context) {
 	if docType == "site_survey" && existingCount >= siteSurveyLimit {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "แนบเอกสาร Site Survey ครบแล้ว (สูงสุด " + strconv.Itoa(siteSurveyLimit) + " ครั้ง)",
+		})
+		return
+	}
+	if docType == "attachment" && existingCount >= attachmentLimit {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "แนบเอกสารประกอบครบแล้ว (สูงสุด " + strconv.Itoa(attachmentLimit) + " ไฟล์)",
 		})
 		return
 	}
@@ -170,6 +178,12 @@ func CreateDocument(c *gin.Context) {
 		})
 		return
 	}
+	if docType == "attachment" && existingCount >= attachmentLimit {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "แนบเอกสารประกอบครบแล้ว (สูงสุด " + strconv.Itoa(attachmentLimit) + " ไฟล์)",
+		})
+		return
+	}
 
 	var doc models.Document
 	err = tx.QueryRow(ctx,
@@ -211,8 +225,8 @@ func CreateDocument(c *gin.Context) {
 		projectID,
 	)
 
-	// site_survey is informational only; other document types may advance status.
-	if docType != "site_survey" {
+	// site_survey / attachment do not change pipeline status.
+	if docType != "site_survey" && docType != "attachment" {
 		autoAdvanceStatus(projectID, docType, userIDStr)
 	}
 
