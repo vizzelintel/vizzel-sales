@@ -44,6 +44,7 @@ type Project struct {
 	CalendarEventID string    `json:"calendar_event_id,omitempty"`
 	PresentType     string    `json:"present_type,omitempty"`
 	DetailNote      string    `json:"detail_note,omitempty"`
+	AutoRejectAt    string    `json:"auto_reject_at,omitempty"`
 }
 
 type Document struct {

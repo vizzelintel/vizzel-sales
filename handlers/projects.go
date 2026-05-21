@@ -55,7 +55,8 @@ const projectCols = `id,
 	COALESCE(appointment_note,''),
 	COALESCE(calendar_event_id,''),
 	COALESCE(present_type,''),
-	COALESCE(detail_note,'')`
+	COALESCE(detail_note,''),
+	COALESCE(auto_reject_at::text,'')`
 
 func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 	var p models.Project
@@ -66,7 +67,7 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 		&p.Status, &p.StatusNote, &p.RejectReason,
 		&p.CreatedBy, &p.CreatedAt,
 		&p.AppointmentDate, &p.AppointmentNote, &p.CalendarEventID,
-		&p.PresentType, &p.DetailNote,
+		&p.PresentType, &p.DetailNote, &p.AutoRejectAt,
 	)
 	return p, err
 }
@@ -126,9 +127,11 @@ func CreateProject(c *gin.Context) {
 		`INSERT INTO projects
 			(agency_name, agency_type, region,
 			 contact_person, contact_position, contact_phone,
-			 status, company_id, created_by, created_at)
+			 status, company_id, created_by, created_at,
+			 auto_reject_at)
 		 VALUES ($1, NULLIF($2,''), $3, $4, $5, $6,
-		         'registrator', NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9)
+		         'registrator', NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9,
+		         NOW() + INTERVAL '90 days')
 		 RETURNING `+projectCols,
 		req.AgencyName, req.AgencyType, req.Region,
 		req.ContactPerson, req.ContactPosition, req.ContactPhone,
@@ -140,7 +143,7 @@ func CreateProject(c *gin.Context) {
 		&project.Status, &project.StatusNote, &project.RejectReason,
 		&project.CreatedBy, &project.CreatedAt,
 		&project.AppointmentDate, &project.AppointmentNote, &project.CalendarEventID,
-		&project.PresentType, &project.DetailNote,
+		&project.PresentType, &project.DetailNote, &project.AutoRejectAt,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
@@ -387,8 +390,12 @@ func UpdateProject(c *gin.Context) {
 		return
 	}
 
+	autoRejectReset := ""
+	if currentStatus != "contract" && currentStatus != "closed" && currentStatus != "reject" {
+		autoRejectReset = ", auto_reject_at = NOW() + INTERVAL '90 days'"
+	}
 	tag, err := config.DB.Exec(context.Background(),
-		`UPDATE projects SET detail_note = NULLIF($1,''), last_activity_at = NOW() WHERE id = $2::uuid`,
+		`UPDATE projects SET detail_note = NULLIF($1,''), last_activity_at = NOW()`+autoRejectReset+` WHERE id = $2::uuid`,
 		note, id,
 	)
 	if err != nil {

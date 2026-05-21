@@ -79,6 +79,9 @@ func main() {
 		api.DELETE("/documents/:id", handlers.DeleteDocument)
 	}
 
+	// Auto-reject projects with no activity for 90 days
+	go handlers.StartAutoRejectCron()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
