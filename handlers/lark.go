@@ -17,8 +17,11 @@ import (
 	"vizzel-backend/models"
 )
 
-var larkCachedToken string
-var larkTokenExpiry time.Time
+var (
+	larkCachedToken string
+	larkTokenExpiry time.Time
+	larkHTTPClient  = &http.Client{Timeout: 30 * time.Second}
+)
 
 type larkAPIResp struct {
 	Code int             `json:"code"`
@@ -43,7 +46,7 @@ func getLarkAccessToken() (string, error) {
 		return "", fmt.Errorf("LARK credentials not configured")
 	}
 	body, _ := json.Marshal(map[string]string{"app_id": appID, "app_secret": appSecret})
-	resp, err := http.Post(
+	resp, err := larkHTTPClient.Post(
 		larkBaseURL()+"/open-apis/auth/v3/tenant_access_token/internal",
 		"application/json",
 		bytes.NewReader(body),
@@ -131,7 +134,7 @@ func larkDo(method, url string, token string, payload interface{}) ([]byte, erro
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := larkHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +209,6 @@ func createLarkRecord(token, appToken, tableID string, fields map[string]interfa
 	if err := json.Unmarshal(rb, &res); err != nil {
 		return "", err
 	}
-	log.Printf("[LARK] created record_id=%s project=%v\n", res.Data.Record.RecordID, fields["Project ID"])
 	return res.Data.Record.RecordID, nil
 }
 
@@ -220,7 +222,6 @@ func updateLarkRecord(token, appToken, tableID, recordID string, fields map[stri
 		log.Printf("[LARK] update failed record=%s: %v body=%s\n", recordID, err, rb)
 		return err
 	}
-	log.Printf("[LARK] updated record_id=%s status=%v\n", recordID, fields["สถานะ"])
 	return nil
 }
 
@@ -341,32 +342,19 @@ func SyncAllProjectsToLark(c *gin.Context) {
 		return
 	}
 
-	rows, err := config.DB.Query(context.Background(),
-		`SELECT `+projectCols+` FROM projects ORDER BY created_at DESC`)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch projects"})
-		return
-	}
-	defer rows.Close()
-
-	var projects []models.Project
-	for rows.Next() {
-		if p, err := scanProject(rows); err == nil {
-			projects = append(projects, p)
-		}
-	}
-	rows.Close()
+	var n int
+	_ = config.DB.QueryRow(context.Background(), `SELECT COUNT(*) FROM projects`).Scan(&n)
 
 	go func() {
-		for _, p := range projects {
-			SyncProjectToLark(p)
-			time.Sleep(300 * time.Millisecond)
+		if res, err := RunBulkLarkSync(); err != nil {
+			log.Printf("[LARK] bulk sync error: %v\n", err)
+		} else if len(res.Failed) > 0 {
+			log.Printf("[LARK] bulk sync partial: %d/%d ok\n", res.Success, res.Total)
 		}
-		log.Printf("[LARK] Bulk sync done: %d projects\n", len(projects))
 	}()
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": fmt.Sprintf("กำลัง sync %d โครงการไปยัง Lark", len(projects)),
+		"message": fmt.Sprintf("กำลัง sync %d โครงการไปยัง Lark", n),
 	})
 }
 
@@ -395,71 +383,37 @@ func LarkDiagnose(c *gin.Context) {
 		out["date_format"] = "ms (default)"
 	}
 
-	tenantToken, err := getLarkAccessToken()
-	if err != nil {
-		out["auth_ok"] = false
-		out["auth_error"] = err.Error()
-		c.JSON(http.StatusOK, out)
-		return
+	d := RunLarkDiagnose()
+	out["auth_ok"] = d.AuthOK
+	if d.AuthError != "" {
+		out["auth_error"] = d.AuthError
 	}
-	out["auth_ok"] = true
-
-	cfg, err := resolveLarkBitableConfig(tenantToken)
-	if err != nil {
-		out["config_ok"] = false
-		out["config_error"] = err.Error()
-		c.JSON(http.StatusOK, out)
-		return
+	out["config_ok"] = d.ConfigOK
+	if d.ConfigError != "" {
+		out["config_error"] = d.ConfigError
 	}
-	out["config_ok"] = true
-	out["app_token_source"] = cfg.AppTokenSource
-	out["app_token_prefix"] = truncToken(cfg.AppToken)
-	out["table_id"] = cfg.TableID
-
-	url := fmt.Sprintf("%s/open-apis/bitable/v1/apps/%s/tables/%s/fields?page_size=100",
-		larkBaseURL(), cfg.AppToken, cfg.TableID)
-	rb, err := larkDo("GET", url, tenantToken, nil)
-	if err != nil {
-		out["fields_ok"] = false
-		out["fields_error"] = err.Error()
-		c.JSON(http.StatusOK, out)
-		return
+	if d.AppTokenSource != "" {
+		out["app_token_source"] = d.AppTokenSource
 	}
-	var fieldsRes struct {
-		Data struct {
-			Items []struct {
-				FieldName string `json:"field_name"`
-				Type      int    `json:"type"`
-			} `json:"items"`
-		} `json:"data"`
+	if d.AppTokenPrefix != "" {
+		out["app_token_prefix"] = d.AppTokenPrefix
 	}
-	_ = json.Unmarshal(rb, &fieldsRes)
-	names := make([]string, 0, len(fieldsRes.Data.Items))
-	for _, it := range fieldsRes.Data.Items {
-		names = append(names, it.FieldName)
+	if d.TableID != "" {
+		out["table_id"] = d.TableID
 	}
-	out["fields_ok"] = true
-	out["field_count"] = len(names)
-	out["field_names"] = names
+	out["fields_ok"] = d.FieldsOK
+	if d.FieldsError != "" {
+		out["fields_error"] = d.FieldsError
+	}
+	out["field_count"] = d.FieldCount
+	out["field_names"] = d.FieldNames
+	out["records_ok"] = d.RecordsOK
+	if d.RecordsError != "" {
+		out["records_error"] = d.RecordsError
+	}
+	out["records_total_hint"] = d.RecordsTotal
 	out["recommended_columns"] = RecommendedLarkColumns()
 	out["extras_enabled"] = larkExtrasEnabled()
-
-	// Probe list records (validates app_token + table_id + app permission).
-	searchURL := fmt.Sprintf("%s/open-apis/bitable/v1/apps/%s/tables/%s/records/search",
-		larkBaseURL(), cfg.AppToken, cfg.TableID)
-	if srb, serr := larkDo("POST", searchURL, tenantToken, map[string]interface{}{"page_size": 1}); serr != nil {
-		out["records_ok"] = false
-		out["records_error"] = serr.Error()
-	} else {
-		var sres struct {
-			Data struct {
-				Total int `json:"total"`
-			} `json:"data"`
-		}
-		_ = json.Unmarshal(srb, &sres)
-		out["records_ok"] = true
-		out["records_total_hint"] = sres.Data.Total
-	}
 
 	c.JSON(http.StatusOK, out)
 }

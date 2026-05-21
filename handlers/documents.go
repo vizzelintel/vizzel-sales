@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -227,36 +228,16 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		`SELECT COALESCE(status,''), COALESCE(created_by::text,'')
 		 FROM projects WHERE id = $1::uuid`, projectID,
 	).Scan(&currentStatus, &createdBy); err != nil {
-		fmt.Printf("[STATUS] failed to fetch project %s: %v\n", projectID, err)
+		log.Printf("[STATUS] fetch project %s: %v\n", projectID, err)
 		return
 	}
 
-	// Skip terminal states — nothing to advance.
 	if currentStatus == "closed" || currentStatus == "reject" {
-		fmt.Printf("[STATUS] project=%s already terminal (%s), skip\n", projectID, currentStatus)
 		return
 	}
 
-	// Determine whether the project owner has a support/admin role.
-	// Falls back to false (dealer) when role is empty/unset.
-	ownerIsSupport := false
-	if createdBy != "" {
-		var ownerRole string
-		if err := config.DB.QueryRow(ctx,
-			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, createdBy,
-		).Scan(&ownerRole); err == nil {
-			ownerIsSupport = ownerRole == "support" || ownerRole == "admin"
-		}
-	}
-
-	countDocs := func(dtype string) int {
-		var n int
-		_ = config.DB.QueryRow(ctx,
-			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
-			projectID, dtype,
-		).Scan(&n)
-		return n
-	}
+	ownerIsSupport := projectOwnerIsSupport(ctx, createdBy)
+	docCounts := projectDocCounts(ctx, projectID)
 
 	var nextStatus string
 	switch docType {
@@ -272,7 +253,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 				nextStatus = "tor"
 			} else {
 				// Dealer-created project: also need tor_dealer.
-				if countDocs("tor_dealer") >= 1 {
+				if docCounts["tor_dealer"] >= 1 {
 					nextStatus = "tor"
 				}
 			}
@@ -280,7 +261,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 
 	case "tor_dealer":
 		// Only advance when tor_support was already uploaded.
-		if currentStatus == "quotation" && countDocs("tor_support") >= 1 {
+		if currentStatus == "quotation" && docCounts["tor_support"] >= 1 {
 			nextStatus = "tor"
 		}
 
@@ -295,9 +276,6 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		}
 		// site_survey: no status change
 	}
-
-	fmt.Printf("[STATUS] project=%s docType=%s ownerIsSupport=%v currentStatus=%s newStatus=%s\n",
-		projectID, docType, ownerIsSupport, currentStatus, nextStatus)
 
 	if nextStatus == "" {
 		return
@@ -316,7 +294,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		 WHERE id = $2::uuid`, autoRejectExpr),
 		nextStatus, projectID,
 	); err != nil {
-		fmt.Printf("[STATUS] UPDATE failed project=%s newStatus=%s: %v\n", projectID, nextStatus, err)
+		log.Printf("[STATUS] advance failed project=%s newStatus=%s: %v\n", projectID, nextStatus, err)
 		return
 	}
 
@@ -326,17 +304,6 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		projectID, currentStatus, nextStatus, userID,
 		"อัปเดตอัตโนมัติจากการแนบเอกสาร: "+docType,
 	)
-
-	fmt.Printf("[STATUS] advanced project=%s %s→%s\n", projectID, currentStatus, nextStatus)
-
-	// Sync updated project to Lark in background
-	go func() {
-		if p, err := scanProject(config.DB.QueryRow(ctx,
-			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, projectID,
-		)); err == nil {
-			SyncProjectToLark(p)
-		}
-	}()
 }
 
 // DeleteDocument removes a document record and its stored file.
@@ -399,30 +366,13 @@ func reconcileProjectStatusAfterDocumentDelete(projectID, deletedDocType, userID
 		return
 	}
 
-	ownerIsSupport := false
-	if createdBy != "" {
-		var ownerRole string
-		if err := config.DB.QueryRow(ctx,
-			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, createdBy,
-		).Scan(&ownerRole); err == nil {
-			ownerIsSupport = ownerRole == "support" || ownerRole == "admin"
-		}
-	}
-
-	countDocs := func(dtype string) int {
-		var n int
-		_ = config.DB.QueryRow(ctx,
-			`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
-			projectID, dtype,
-		).Scan(&n)
-		return n
-	}
-
-	quotationSupport := countDocs("quotation_support")
-	torSupport := countDocs("tor_support")
-	torDealer := countDocs("tor_dealer")
-	contractDocs := countDocs("contract")
-	closingDocs := countDocs("closing")
+	ownerIsSupport := projectOwnerIsSupport(ctx, createdBy)
+	docCounts := projectDocCounts(ctx, projectID)
+	quotationSupport := docCounts["quotation_support"]
+	torSupport := docCounts["tor_support"]
+	torDealer := docCounts["tor_dealer"]
+	contractDocs := docCounts["contract"]
+	closingDocs := docCounts["closing"]
 
 	newStatus := currentStatus
 	switch {
@@ -467,14 +417,39 @@ func reconcileProjectStatusAfterDocumentDelete(projectID, deletedDocType, userID
 		projectID, currentStatus, newStatus, userID,
 		"ปรับสถานะอัตโนมัติหลังลบเอกสาร: "+deletedDocType,
 	)
+}
 
-	go func() {
-		if p, err := scanProject(config.DB.QueryRow(ctx,
-			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, projectID,
-		)); err == nil {
-			SyncProjectToLark(p)
+func projectOwnerIsSupport(ctx context.Context, createdBy string) bool {
+	if createdBy == "" {
+		return false
+	}
+	var role string
+	if err := config.DB.QueryRow(ctx,
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, createdBy,
+	).Scan(&role); err != nil {
+		return false
+	}
+	return role == "support" || role == "admin"
+}
+
+func projectDocCounts(ctx context.Context, projectID string) map[string]int {
+	counts := make(map[string]int)
+	rows, err := config.DB.Query(ctx,
+		`SELECT doc_type, COUNT(*)::int FROM documents WHERE project_id = $1::uuid GROUP BY doc_type`,
+		projectID,
+	)
+	if err != nil {
+		return counts
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var typ string
+		var n int
+		if rows.Scan(&typ, &n) == nil {
+			counts[typ] = n
 		}
-	}()
+	}
+	return counts
 }
 
 // deleteFromStorage removes a file from Supabase Storage.

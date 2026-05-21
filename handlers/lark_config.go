@@ -6,6 +6,15 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
+	"time"
+)
+
+var (
+	larkCfgMu      sync.Mutex
+	larkCfgCached  larkBitableConfig
+	larkCfgCachedAt time.Time
+	larkCfgCacheTTL = time.Hour
 )
 
 type larkBitableConfig struct {
@@ -18,6 +27,26 @@ type larkBitableConfig struct {
 // When LARK_WIKI_NODE_TOKEN is set (wiki URL …/wiki/{token}?table=…), app_token is
 // resolved from the wiki node obj_token (required for Bitable embedded in Wiki).
 func resolveLarkBitableConfig(tenantToken string) (larkBitableConfig, error) {
+	larkCfgMu.Lock()
+	if !larkCfgCachedAt.IsZero() && time.Since(larkCfgCachedAt) < larkCfgCacheTTL {
+		cfg := larkCfgCached
+		larkCfgMu.Unlock()
+		return cfg, nil
+	}
+	larkCfgMu.Unlock()
+
+	cfg, err := resolveLarkBitableConfigUncached(tenantToken)
+	if err != nil {
+		return cfg, err
+	}
+	larkCfgMu.Lock()
+	larkCfgCached = cfg
+	larkCfgCachedAt = time.Now()
+	larkCfgMu.Unlock()
+	return cfg, nil
+}
+
+func resolveLarkBitableConfigUncached(tenantToken string) (larkBitableConfig, error) {
 	tableID := strings.TrimSpace(os.Getenv("LARK_TABLE_ID"))
 	if tableID == "" {
 		return larkBitableConfig{}, fmt.Errorf("LARK_TABLE_ID not set")

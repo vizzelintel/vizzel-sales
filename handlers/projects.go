@@ -108,16 +108,22 @@ func CreateProject(c *gin.Context) {
 		req.CompanyID = creatorCompanyID
 	}
 
-	// Duplicate check: reject if agency_name already exists (case/space-insensitive).
-	var existingID string
+	// Duplicate check: same agency_name allowed only when every existing row is reject.
+	var existingID, existingStatus string
 	dupErr := config.DB.QueryRow(context.Background(),
-		`SELECT id::text FROM projects WHERE LOWER(TRIM(agency_name)) = LOWER(TRIM($1)) LIMIT 1`,
+		`SELECT id::text, COALESCE(status,'')
+		 FROM projects
+		 WHERE LOWER(TRIM(agency_name)) = LOWER(TRIM($1))
+		   AND status IS DISTINCT FROM 'reject'
+		 LIMIT 1`,
 		name,
-	).Scan(&existingID)
+	).Scan(&existingID, &existingStatus)
 	if dupErr == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":               "หน่วยงานนี้ถูกลงทะเบียนไปแล้ว",
-			"existing_project_id": existingID,
+			"error": "มีโครงการชื่อนี้อยู่แล้ว (สถานะ: " + getLarkStatusLabel(existingStatus) +
+				") สร้างใหม่ได้เมื่อโครงการเดิมเป็น Reject เท่านั้น",
+			"existing_project_id":     existingID,
+			"existing_project_status": existingStatus,
 		})
 		return
 	}
@@ -166,6 +172,13 @@ func CreateProject(c *gin.Context) {
 		}
 	}
 	if err != nil {
+		if strings.Contains(err.Error(), "23505") &&
+			strings.Contains(err.Error(), "idx_projects_agency_name_active") {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "มีโครงการชื่อนี้อยู่แล้ว สร้างใหม่ได้เมื่อโครงการเดิมเป็น Reject เท่านั้น",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
 		return
 	}

@@ -19,7 +19,14 @@ func main() {
 
 	config.InitDB()
 
-	r := gin.Default()
+	var r *gin.Engine
+	if os.Getenv("GIN_MODE") == "release" {
+		gin.SetMode(gin.ReleaseMode)
+		r = gin.New()
+		r.Use(gin.Recovery())
+	} else {
+		r = gin.Default()
+	}
 	r.MaxMultipartMemory = 8 << 20 // 8 MB max for file uploads
 
 	allowedOrigins := map[string]bool{
