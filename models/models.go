@@ -45,6 +45,7 @@ type Project struct {
 	PresentType     string    `json:"present_type,omitempty"`
 	DetailNote      string    `json:"detail_note,omitempty"`
 	AutoRejectAt    string    `json:"auto_reject_at,omitempty"`
+	LarkRecordID    string    `json:"-"` // Lark Bitable record_id; not exposed in API
 }
 
 type Document struct {

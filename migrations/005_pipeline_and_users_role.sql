@@ -11,6 +11,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code_used text;
 
 -- Allow dealer / support / admin (fixes users_role_check on new registrations)
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+-- Legacy Supabase schema used member/super_admin; app uses dealer/support/admin.
+UPDATE users SET role = 'dealer' WHERE role = 'member';
+UPDATE users SET role = 'admin' WHERE role = 'super_admin';
 UPDATE users
 SET role = 'dealer'
 WHERE role IS NULL OR TRIM(role) = ''

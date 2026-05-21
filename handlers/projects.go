@@ -54,7 +54,8 @@ const projectCols = `id,
 	COALESCE(calendar_event_id,''),
 	COALESCE(present_type,''),
 	COALESCE(detail_note,''),
-	COALESCE(auto_reject_at::text,'')`
+	COALESCE(auto_reject_at::text,''),
+	COALESCE(lark_record_id,'')`
 
 func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 	var p models.Project
@@ -66,6 +67,7 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 		&p.CreatedBy, &p.CreatedAt,
 		&p.AppointmentDate, &p.AppointmentNote, &p.CalendarEventID,
 		&p.PresentType, &p.DetailNote, &p.AutoRejectAt,
+		&p.LarkRecordID,
 	)
 	// Backward compatibility: older DB constraints may still store "registrator".
 	// Keep API contract stable by normalizing to "register" for clients.
@@ -153,6 +155,7 @@ func CreateProject(c *gin.Context) {
 			&project.CreatedBy, &project.CreatedAt,
 			&project.AppointmentDate, &project.AppointmentNote, &project.CalendarEventID,
 			&project.PresentType, &project.DetailNote, &project.AutoRejectAt,
+			&project.LarkRecordID,
 		)
 		if err == nil {
 			break

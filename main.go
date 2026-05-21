@@ -82,6 +82,8 @@ func main() {
 		api.GET("/admin/companies/:id", handlers.GetCompanyDetail)
 		api.PUT("/admin/companies/:id", handlers.UpdateCompanyDetail)
 		api.POST("/admin/sync-lark", handlers.SyncAllProjectsToLark)
+		api.GET("/admin/lark-diagnose", handlers.LarkDiagnose)
+		api.POST("/admin/lark-sync-probe", handlers.LarkSyncProbe)
 
 		api.POST("/documents", handlers.CreateDocument)
 		api.DELETE("/documents/:id", handlers.DeleteDocument)

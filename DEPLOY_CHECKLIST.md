@@ -14,7 +14,7 @@ Single-environment deployment (production only).
 - [ ] `SUPABASE_DB_URL` is set in Fly secrets.
 - [ ] `SUPABASE_URL` is set in Fly secrets.
 - [ ] `SUPABASE_SERVICE_KEY` is set in Fly secrets.
-- [ ] Required migrations are applied (including `004_project_appointments.sql`).
+- [ ] Required migrations are applied (in order: `004_project_appointments.sql`, then `005_pipeline_and_users_role.sql`).
 - [ ] DB connectivity check passes from backend (`/health` + startup logs).
 
 ## 3) Fly.io (Backend)
@@ -55,9 +55,20 @@ Single-environment deployment (production only).
 ## 5) Lark
 
 - [ ] `LARK_APP_ID` and `LARK_APP_SECRET` are valid.
-- [ ] `LARK_BASE_APP_TOKEN` points to the correct Bitable app.
-- [ ] `LARK_TABLE_ID` points to the correct table.
+- [ ] Lark app is added as **admin/member** of the Wiki space (required for wiki Bitable API).
+- [ ] If Bitable is inside Wiki (URL `…/wiki/{token}?table=tbl…`):
+  - [ ] `LARK_WIKI_NODE_TOKEN` = wiki token from URL (e.g. `Es4NwqP2OimAqZkUADOjVuSip4c`)
+  - [ ] `LARK_TABLE_ID` = `table=` from URL (e.g. `tblhmbd8fUOB5GGv`)
+- [ ] Or standalone base: `LARK_BASE_APP_TOKEN` = app token from `…/base/{token}` URL.
+- [ ] `GET /api/v1/admin/lark-diagnose` → `config_ok`, `fields_ok`, `records_ok` all true.
+- [ ] `POST /api/v1/admin/lark-sync-probe` → `{ "ok": true }` for a test project.
 - [ ] Create/update sync works after project create and status change.
+- [ ] Bitable table includes appointment + document columns (see `GET /api/v1/admin/lark-diagnose` → `recommended_columns`):
+  - Dates (type **Date**): `วันพรีเซ็น`, `วัน Demo`, `วัน Site Survey`
+  - Text: `รูปแบบ Present`, `หมายเหตุ Present`, `หมายเหตุ Demo`, `หมายเหตุ Site Survey`, `สรุปนัดหมาย`, `เอกสาร`
+  - If date columns are **Text** instead, set Fly secret `LARK_DATE_FORMAT=text`
+- [ ] Sync runs after: create project, นัดหมาย (present/demo/site survey), แนบ/ลบเอกสาร, เปลี่ยนสถานะ
+- [ ] Admin bulk re-sync: `POST /api/v1/admin/sync-lark`
 
 ## 6) Frontend URLs
 

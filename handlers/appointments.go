@@ -175,6 +175,7 @@ func UpsertProjectAppointment(c *gin.Context) {
 		"calendar_message":      calendarMessage,
 		"calendar_mail_ok":      calendarMailOK,
 	})
+	go SyncProjectToLarkByID(projectID)
 }
 
 // scheduleAppointmentNotifications tries Google Calendar then SMTP .ics invite.

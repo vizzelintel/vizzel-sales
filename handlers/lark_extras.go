@@ -1,0 +1,283 @@
+package handlers
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+	"time"
+
+	"vizzel-backend/config"
+)
+
+// Lark Bitable column names for appointments & documents (add these to your table).
+const (
+	larkColApptPresentDate  = "วันพรีเซ็น"
+	larkColPresentType      = "รูปแบบ Present"
+	larkColPresentNote      = "หมายเหตุ Present"
+	larkColApptDemoDate     = "วัน Demo"
+	larkColDemoNote         = "หมายเหตุ Demo"
+	larkColApptSurveyDate   = "วัน Site Survey"
+	larkColSurveyNote       = "หมายเหตุ Site Survey"
+	larkColApptSummary      = "สรุปนัดหมาย"
+	larkColDocuments        = "เอกสาร"
+)
+
+var larkDocLabels = map[string]string{
+	"quotation_support": "ใบเสนอราคา (Support)",
+	"quotation_dealer":  "ใบเสนอราคา (Dealer)",
+	"tor_support":       "ร่าง TOR (Support)",
+	"tor_dealer":        "ร่าง TOR (Dealer)",
+	"contract":          "เอกสารสัญญา",
+	"closing":           "เอกสารปิดงาน",
+	"site_survey":       "เอกสาร Site Survey",
+}
+
+var larkApptLabels = map[string]string{
+	"present":     "Present",
+	"demo":        "Demo",
+	"site_survey": "Site Survey",
+}
+
+type larkApptSlot struct {
+	ScheduledAt time.Time
+	Note        string
+	PresentType string
+	HasTime     bool
+}
+
+func larkExtrasEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LARK_SYNC_EXTRAS"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func larkBangkok() *time.Location {
+	loc, err := time.LoadLocation("Asia/Bangkok")
+	if err != nil {
+		return time.FixedZone("ICT", 7*3600)
+	}
+	return loc
+}
+
+func parseLarkTimestamp(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05-07",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func formatLarkDisplayTime(t time.Time) string {
+	return t.In(larkBangkok()).Format("02/01/2006 15:04")
+}
+
+func larkDateFieldValue(t time.Time) interface{} {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LARK_DATE_FORMAT"))) {
+	case "text", "string":
+		return t.In(larkBangkok()).Format("2006-01-02 15:04")
+	default:
+		return t.UnixMilli()
+	}
+}
+
+func loadLarkAppointments(projectID string) map[string]larkApptSlot {
+	out := map[string]larkApptSlot{}
+	rows, err := config.DB.Query(context.Background(),
+		`SELECT appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,'')
+		 FROM project_appointments WHERE project_id = $1::uuid`,
+		projectID,
+	)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var typ, at, note, pt string
+			if rows.Scan(&typ, &at, &note, &pt) == nil {
+				if t, ok := parseLarkTimestamp(at); ok {
+					out[typ] = larkApptSlot{ScheduledAt: t, Note: note, PresentType: pt, HasTime: true}
+				}
+			}
+		}
+	}
+
+	if _, ok := out["present"]; !ok {
+		var legacyAt, legacyNote, legacyPresent string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT COALESCE(appointment_date::text,''), COALESCE(appointment_note,''), COALESCE(present_type,'')
+			 FROM projects WHERE id = $1::uuid`, projectID,
+		).Scan(&legacyAt, &legacyNote, &legacyPresent)
+		if t, ok := parseLarkTimestamp(legacyAt); ok {
+			out["present"] = larkApptSlot{ScheduledAt: t, Note: legacyNote, PresentType: legacyPresent, HasTime: true}
+		}
+	}
+	return out
+}
+
+type larkDocRow struct {
+	DocType  string
+	FileName string
+	FileURL  string
+}
+
+func loadLarkDocuments(projectID string) []larkDocRow {
+	rows, err := config.DB.Query(context.Background(),
+		`SELECT COALESCE(doc_type,''), COALESCE(file_name,''), COALESCE(file_url,'')
+		 FROM documents WHERE project_id = $1::uuid ORDER BY created_at ASC`,
+		projectID,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var list []larkDocRow
+	for rows.Next() {
+		var d larkDocRow
+		if rows.Scan(&d.DocType, &d.FileName, &d.FileURL) == nil && d.FileURL != "" {
+			list = append(list, d)
+		}
+	}
+	return list
+}
+
+func buildLarkAppointmentFields(projectID string) map[string]interface{} {
+	appts := loadLarkAppointments(projectID)
+	fields := map[string]interface{}{}
+
+	setDate := func(col string, slot larkApptSlot) {
+		if slot.HasTime {
+			fields[col] = larkDateFieldValue(slot.ScheduledAt)
+		}
+	}
+	setNote := func(col, note string) {
+		fields[col] = strings.TrimSpace(note)
+	}
+
+	if s, ok := appts["present"]; ok {
+		setDate(larkColApptPresentDate, s)
+		if s.PresentType != "" {
+			fields[larkColPresentType] = s.PresentType
+		}
+		setNote(larkColPresentNote, s.Note)
+	}
+	if s, ok := appts["demo"]; ok {
+		setDate(larkColApptDemoDate, s)
+		setNote(larkColDemoNote, s.Note)
+	}
+	if s, ok := appts["site_survey"]; ok {
+		setDate(larkColApptSurveyDate, s)
+		setNote(larkColSurveyNote, s.Note)
+	}
+
+	var summaryLines []string
+	for _, typ := range []string{"present", "demo", "site_survey"} {
+		s, ok := appts[typ]
+		label := larkApptLabels[typ]
+		if !ok || !s.HasTime {
+			summaryLines = append(summaryLines, fmt.Sprintf("%s: —", label))
+			continue
+		}
+		line := fmt.Sprintf("%s: %s", label, formatLarkDisplayTime(s.ScheduledAt))
+		if typ == "present" && s.PresentType != "" {
+			line += " (" + s.PresentType + ")"
+		}
+		if strings.TrimSpace(s.Note) != "" {
+			line += " — " + strings.TrimSpace(s.Note)
+		}
+		summaryLines = append(summaryLines, line)
+	}
+	fields[larkColApptSummary] = strings.Join(summaryLines, "\n")
+	return fields
+}
+
+func buildLarkDocumentFields(projectID string) map[string]interface{} {
+	docs := loadLarkDocuments(projectID)
+	var lines []string
+	for _, d := range docs {
+		label := larkDocLabels[d.DocType]
+		if label == "" {
+			label = d.DocType
+		}
+		name := strings.TrimSpace(d.FileName)
+		if name == "" {
+			name = "ไฟล์"
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s\n%s", label, name, d.FileURL))
+	}
+	text := strings.Join(lines, "\n\n")
+	if text == "" {
+		text = "—"
+	}
+	return map[string]interface{}{larkColDocuments: text}
+}
+
+func mergeLarkExtraFields(projectID string, base map[string]interface{}) (full, baseOnly map[string]interface{}) {
+	baseOnly = base
+	if !larkExtrasEnabled() {
+		return baseOnly, baseOnly
+	}
+	full = make(map[string]interface{}, len(base)+16)
+	for k, v := range base {
+		full[k] = v
+	}
+	for k, v := range buildLarkAppointmentFields(projectID) {
+		full[k] = v
+	}
+	for k, v := range buildLarkDocumentFields(projectID) {
+		full[k] = v
+	}
+	return full, baseOnly
+}
+
+func isLarkUnknownFieldErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "FieldNameNotFound") ||
+		strings.Contains(msg, "field_name_not_found") ||
+		strings.Contains(msg, "1254044")
+}
+
+// SyncProjectToLarkByID reloads the project and syncs to Lark (safe for goroutines).
+func SyncProjectToLarkByID(projectID string) {
+	if strings.TrimSpace(projectID) == "" {
+		return
+	}
+	p, err := scanProject(config.DB.QueryRow(context.Background(),
+		`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, projectID,
+	))
+	if err != nil {
+		log.Printf("[LARK] load project %s: %v\n", projectID, err)
+		return
+	}
+	SyncProjectToLark(p)
+}
+
+// RecommendedLarkColumns lists Bitable columns for full appointment/document sync.
+func RecommendedLarkColumns() []string {
+	return []string{
+		"ชื่อหน่วยงาน", "ประเภทหน่วยงาน", "จังหวัด", "ผู้ติดต่อ", "โทรศัพท์",
+		"บริษัท Dealer", "สถานะ", "Project ID", "วันที่สร้าง",
+		larkColApptPresentDate, larkColPresentType, larkColPresentNote,
+		larkColApptDemoDate, larkColDemoNote,
+		larkColApptSurveyDate, larkColSurveyNote,
+		larkColApptSummary, larkColDocuments,
+	}
+}

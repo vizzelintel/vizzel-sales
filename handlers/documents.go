@@ -31,6 +31,19 @@ var singleUploadDocs = map[string]bool{
 // site_survey allows up to 3 uploads.
 const siteSurveyLimit = 3
 
+// roleMayUploadDocType enforces who may upload each document type.
+func roleMayUploadDocType(role, docType string) bool {
+	staff := role == "support" || role == "admin"
+	switch docType {
+	case "quotation_support", "tor_support", "closing":
+		return staff
+	case "quotation_dealer", "tor_dealer", "contract", "site_survey":
+		return true
+	default:
+		return false
+	}
+}
+
 // allowedExts maps accepted lowercase extensions to their canonical MIME type.
 var allowedExts = map[string]string{
 	".pdf":  "application/pdf",
@@ -65,27 +78,23 @@ func CreateDocument(c *gin.Context) {
 		return
 	}
 
-	// Count existing docs of this type for this project
+	// Quick pre-check before reading file (final check under row lock below).
 	var existingCount int
 	_ = config.DB.QueryRow(context.Background(),
 		`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
 		projectID, docType,
 	).Scan(&existingCount)
-
-	if singleUploadDocs[docType] {
-		if existingCount >= 1 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "เอกสารประเภทนี้มีอยู่แล้ว กรุณาลบก่อนแนบใหม่",
-			})
-			return
-		}
-	} else if docType == "site_survey" {
-		if existingCount >= siteSurveyLimit {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "แนบเอกสาร Site Survey ครบแล้ว (สูงสุด " + strconv.Itoa(siteSurveyLimit) + " ครั้ง)",
-			})
-			return
-		}
+	if singleUploadDocs[docType] && existingCount >= 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "เอกสารประเภทนี้มีอยู่แล้ว กรุณาลบก่อนแนบใหม่",
+		})
+		return
+	}
+	if docType == "site_survey" && existingCount >= siteSurveyLimit {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "แนบเอกสาร Site Survey ครบแล้ว (สูงสุด " + strconv.Itoa(siteSurveyLimit) + " ครั้ง)",
+		})
+		return
 	}
 
 	file, header, err := c.Request.FormFile("file")
@@ -98,16 +107,13 @@ func CreateDocument(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
-	// Only support/admin can upload closing document.
-	if docType == "closing" {
-		var uploaderRole string
-		_ = config.DB.QueryRow(context.Background(),
-			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, userIDStr,
-		).Scan(&uploaderRole)
-		if uploaderRole != "support" && uploaderRole != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "เฉพาะ support/admin เท่านั้นที่ปิดงานได้"})
-			return
-		}
+	var uploaderRole string
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, userIDStr,
+	).Scan(&uploaderRole)
+	if !roleMayUploadDocType(uploaderRole, docType) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "คุณไม่มีสิทธิ์แนบเอกสารประเภทนี้"})
+		return
 	}
 
 	// Validate file extension
@@ -128,8 +134,40 @@ func CreateDocument(c *gin.Context) {
 		return
 	}
 
+	ctx := context.Background()
+	tx, err := config.DB.Begin(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start transaction"})
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock project row so two simultaneous uploads of the same doc_type cannot both pass.
+	if _, err = tx.Exec(ctx, `SELECT 1 FROM projects WHERE id = $1::uuid FOR UPDATE`, projectID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "project lock failed"})
+		return
+	}
+
+	existingCount = 0
+	_ = tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM documents WHERE project_id = $1::uuid AND doc_type = $2`,
+		projectID, docType,
+	).Scan(&existingCount)
+	if singleUploadDocs[docType] && existingCount >= 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "เอกสารประเภทนี้มีอยู่แล้ว กรุณาลบก่อนแนบใหม่",
+		})
+		return
+	}
+	if docType == "site_survey" && existingCount >= siteSurveyLimit {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "แนบเอกสาร Site Survey ครบแล้ว (สูงสุด " + strconv.Itoa(siteSurveyLimit) + " ครั้ง)",
+		})
+		return
+	}
+
 	var doc models.Document
-	err = config.DB.QueryRow(context.Background(),
+	err = tx.QueryRow(ctx,
 		`INSERT INTO documents (project_id, doc_type, file_url, file_name, file_size, mime_type, uploaded_by)
 		 VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7,'')::uuid)
 		 RETURNING id, project_id::text, COALESCE(doc_type,''), file_url,
@@ -142,7 +180,17 @@ func CreateDocument(c *gin.Context) {
 		&doc.UploadedBy, &doc.CreatedAt,
 	)
 	if err != nil {
+		if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "duplicate key") {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "มีผู้แนบเอกสารประเภทนี้แล้ว กรุณารีเฟรชหน้า",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save document: " + err.Error()})
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit document"})
 		return
 	}
 
@@ -164,6 +212,7 @@ func CreateDocument(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, doc)
+	go SyncProjectToLarkByID(projectID)
 }
 
 // autoAdvanceStatus moves the project to the next sequential status when the
@@ -211,7 +260,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 
 	var nextStatus string
 	switch docType {
-	case "quotation_support":
+	case "quotation_support", "quotation_dealer":
 		if currentStatus == "present" {
 			nextStatus = "quotation"
 		}
@@ -336,6 +385,7 @@ func DeleteDocument(c *gin.Context) {
 	reconcileProjectStatusAfterDocumentDelete(projectID, docType, userIDStr)
 
 	c.JSON(http.StatusOK, gin.H{"message": "ลบเอกสารสำเร็จ"})
+	go SyncProjectToLarkByID(projectID)
 }
 
 func reconcileProjectStatusAfterDocumentDelete(projectID, deletedDocType, userID string) {
