@@ -3,13 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"vizzel-backend/config"
 )
 
@@ -22,6 +25,30 @@ type LineProfile struct {
 	UserID      string `json:"userId"`
 	DisplayName string `json:"displayName"`
 	PictureURL  string `json:"pictureUrl"`
+}
+
+type RegisterRequest struct {
+	LineID      string `json:"line_id"      binding:"required"`
+	DisplayName string `json:"display_name"`
+	PictureURL  string `json:"picture_url"`
+	FirstName   string `json:"first_name"   binding:"required"`
+	LastName    string `json:"last_name"    binding:"required"`
+	Phone       string `json:"phone"`
+	Email       string `json:"email"`
+	Region      string `json:"region"`
+	InviteCode  string `json:"invite_code"  binding:"required"`
+}
+
+func issueJWT(userID, lineID, displayName, role string) (string, error) {
+	claims := jwt.MapClaims{
+		"sub":  lineID,
+		"uid":  userID,
+		"name": displayName,
+		"role": role,
+		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
+	}
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(os.Getenv("LINE_CHANNEL_SECRET")))
 }
 
 func LineLogin(c *gin.Context) {
@@ -37,33 +64,35 @@ func LineLogin(c *gin.Context) {
 		return
 	}
 
-	// Upsert user; persist email when provided, but don't clobber an existing
-	// email with an empty string (COALESCE keeps the stored value in that case).
-	// RETURNING also fetches role so the JWT always reflects the current DB value.
+	// Look up existing user by LINE ID
 	var userID, userRole string
 	err = config.DB.QueryRow(context.Background(),
-		`INSERT INTO users (line_id, full_name, email)
-		 VALUES ($1, $2, NULLIF($3,''))
-		 ON CONFLICT (line_id) DO UPDATE
-		     SET full_name = EXCLUDED.full_name,
-		         email     = COALESCE(EXCLUDED.email, users.email)
-		 RETURNING id, COALESCE(role,'')`,
-		profile.UserID, profile.DisplayName, req.Email,
+		`SELECT id::text, COALESCE(role,'') FROM users WHERE line_id = $1`,
+		profile.UserID,
 	).Scan(&userID, &userRole)
+
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// New user — frontend should show registration form
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error":        "user_not_found",
+				"line_id":      profile.UserID,
+				"display_name": profile.DisplayName,
+				"picture_url":  profile.PictureURL,
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error: " + err.Error()})
 		return
 	}
 
-	claims := jwt.MapClaims{
-		"sub":  profile.UserID,    // LINE user ID
-		"uid":  userID,            // DB UUID — used as created_by in project records
-		"name": profile.DisplayName,
-		"role": userRole,          // from DB, not hardcoded
-		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenStr, err := token.SignedString([]byte(os.Getenv("LINE_CHANNEL_SECRET")))
+	// Keep display_name and email in sync for existing users
+	_, _ = config.DB.Exec(context.Background(),
+		`UPDATE users SET full_name = $1, email = COALESCE(NULLIF($2,''), email) WHERE line_id = $3`,
+		profile.DisplayName, req.Email, profile.UserID,
+	)
+
+	tokenStr, err := issueJWT(userID, profile.UserID, profile.DisplayName, userRole)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
 		return
@@ -80,6 +109,99 @@ func LineLogin(c *gin.Context) {
 			"role":    userRole,
 		},
 	})
+}
+
+// ValidateInviteCode — GET /api/v1/auth/validate-invite?code=XXX (no auth required)
+func ValidateInviteCode(c *gin.Context) {
+	code := strings.TrimSpace(c.Query("code"))
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code required"})
+		return
+	}
+
+	var companyID, companyName string
+	err := config.DB.QueryRow(context.Background(),
+		`SELECT id::text, name FROM companies WHERE UPPER(TRIM(invite_code)) = UPPER(TRIM($1))`, code,
+	).Scan(&companyID, &companyName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "invite code ไม่ถูกต้อง"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"company_id": companyID, "company_name": companyName})
+}
+
+// Register — POST /api/v1/auth/register (no auth required)
+func Register(c *gin.Context) {
+	var req RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Prevent duplicate registration
+	var existingID string
+	dupErr := config.DB.QueryRow(context.Background(),
+		`SELECT id::text FROM users WHERE line_id = $1`, req.LineID,
+	).Scan(&existingID)
+	if dupErr == nil {
+		// User already registered — just issue a new token
+		var role string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, existingID,
+		).Scan(&role)
+		tokenStr, err := issueJWT(existingID, req.LineID, req.DisplayName, role)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": tokenStr})
+		return
+	}
+
+	// Validate invite code
+	var companyID string
+	err := config.DB.QueryRow(context.Background(),
+		`SELECT id::text FROM companies WHERE UPPER(TRIM(invite_code)) = UPPER(TRIM($1))`, req.InviteCode,
+	).Scan(&companyID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invite code ไม่ถูกต้อง"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
+
+	fullName := strings.TrimSpace(req.FirstName + " " + req.LastName)
+
+	var userID string
+	err = config.DB.QueryRow(context.Background(),
+		`INSERT INTO users (line_id, full_name, first_name, last_name, phone, email, region,
+		                    role, company_id, invite_code_used)
+		 VALUES ($1, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
+		         'dealer', $8::uuid, $9)
+		 RETURNING id::text`,
+		req.LineID, fullName, req.FirstName, req.LastName,
+		req.Phone, req.Email, req.Region,
+		companyID, req.InviteCode,
+	).Scan(&userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register: " + err.Error()})
+		return
+	}
+
+	tokenStr, err := issueJWT(userID, req.LineID, fullName, "dealer")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"token": tokenStr})
 }
 
 func fetchLineProfile(accessToken string) (*LineProfile, error) {

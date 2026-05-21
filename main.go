@@ -47,6 +47,8 @@ func main() {
 	})
 	r.POST("/api/v1/webhook", handlers.HandleWebhook)
 	r.POST("/api/v1/auth/line", handlers.LineLogin)
+	r.POST("/api/v1/auth/register", handlers.Register)
+	r.GET("/api/v1/auth/validate-invite", handlers.ValidateInviteCode)
 
 	api := r.Group("/api/v1")
 	api.Use(middleware.JWTAuth())
