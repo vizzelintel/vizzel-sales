@@ -3,13 +3,15 @@ package models
 import "time"
 
 type Company struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Address    string    `json:"address,omitempty"`
-	TaxID      string    `json:"tax_id,omitempty"`
-	InviteCode string    `json:"invite_code,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Type        string    `json:"type,omitempty"`
+	Address     string    `json:"address,omitempty"`
+	TaxID       string    `json:"tax_id,omitempty"`
+	InviteCode  string    `json:"invite_code,omitempty"`
+	MemberCount int       `json:"member_count,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type User struct {
@@ -81,6 +83,7 @@ type UpdateProjectRequest struct {
 }
 
 type CreateCompanyRequest struct {
-	Name  string `json:"name" binding:"required"`
-	TaxID string `json:"tax_id"`
+	Name    string `json:"name" binding:"required"`
+	Address string `json:"address"`
+	TaxID   string `json:"tax_id"`
 }

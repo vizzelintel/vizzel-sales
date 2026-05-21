@@ -93,6 +93,15 @@ func CreateProject(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
+	// Auto-set company_id from the creator's company if not provided
+	if req.CompanyID == "" {
+		var creatorCompanyID string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, userIDStr,
+		).Scan(&creatorCompanyID)
+		req.CompanyID = creatorCompanyID
+	}
+
 	// Duplicate check: reject if agency_name already exists (case/space-insensitive).
 	var existingID string
 	dupErr := config.DB.QueryRow(context.Background(),
@@ -142,20 +151,51 @@ func CreateProject(c *gin.Context) {
 }
 
 func GetProjects(c *gin.Context) {
-	companyID := c.Query("company_id")
-	search    := strings.TrimSpace(c.Query("search"))
+	search     := strings.TrimSpace(c.Query("search"))
+	company    := strings.TrimSpace(c.Query("company"))   // company name filter
+	agencyType := strings.TrimSpace(c.Query("agency_type"))
+	province   := strings.TrimSpace(c.Query("province"))  // maps to projects.region
+	statusF    := strings.TrimSpace(c.Query("status"))
+
+	// Determine caller's role + company_id for scoping
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	var callerRole, callerCompanyID string
+	config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,''), COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&callerRole, &callerCompanyID)
 
 	base := `SELECT ` + projectCols + ` FROM projects`
 	var conditions []string
 	var args []any
 
-	if companyID != "" {
-		args = append(args, companyID)
+	// Dealers see only their own company's projects
+	if callerRole == "dealer" && callerCompanyID != "" {
+		args = append(args, callerCompanyID)
 		conditions = append(conditions, fmt.Sprintf("company_id = $%d::uuid", len(args)))
 	}
+
 	if search != "" {
 		args = append(args, "%"+strings.ToLower(search)+"%")
 		conditions = append(conditions, fmt.Sprintf("LOWER(agency_name) LIKE $%d", len(args)))
+	}
+	if company != "" && callerRole != "dealer" {
+		// Resolve company name → company_id via subquery
+		args = append(args, company)
+		conditions = append(conditions, fmt.Sprintf(
+			`company_id = (SELECT id FROM companies WHERE LOWER(name) = LOWER($%d) LIMIT 1)`, len(args)))
+	}
+	if agencyType != "" {
+		args = append(args, agencyType)
+		conditions = append(conditions, fmt.Sprintf("agency_type = $%d", len(args)))
+	}
+	if province != "" {
+		args = append(args, province)
+		conditions = append(conditions, fmt.Sprintf("region = $%d", len(args)))
+	}
+	if statusF != "" {
+		args = append(args, statusF)
+		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)))
 	}
 
 	query := base

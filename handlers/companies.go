@@ -2,13 +2,140 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"vizzel-backend/config"
 	"vizzel-backend/models"
 )
+
+// generateInviteCode creates a unique "<3LETTERS>-<4DIGITS>" code for a company.
+func generateInviteCode(ctx context.Context, companyName string) string {
+	// Extract up to 3 uppercase ASCII letters from the start of the name
+	prefix := ""
+	for _, ch := range strings.ToUpper(companyName) {
+		if ch >= 'A' && ch <= 'Z' {
+			prefix += string(ch)
+			if len(prefix) == 3 {
+				break
+			}
+		}
+	}
+	if len(prefix) < 3 {
+		prefix = "DLR"
+	}
+
+	for i := 0; i < 10; i++ { // max 10 tries
+		code := fmt.Sprintf("%s-%04d", prefix, rand.Intn(9000)+1000)
+		var count int
+		config.DB.QueryRow(ctx, `SELECT COUNT(*) FROM companies WHERE invite_code = $1`, code).Scan(&count)
+		if count == 0 {
+			return code
+		}
+	}
+	// Fallback: prefix + timestamp suffix
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()%10000)
+}
+
+// ListAdminCompanies — admin + support: list all companies with member count.
+func ListAdminCompanies(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+
+	var role string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role); err != nil || (role != "admin" && role != "support") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์เข้าถึง"})
+		return
+	}
+
+	rows, err := config.DB.Query(context.Background(), `
+		SELECT c.id, c.name, COALESCE(c.type,'dealer'), COALESCE(c.invite_code,''),
+		       COALESCE(c.address,''), COALESCE(c.tax_id,''), c.created_at,
+		       COUNT(u.id)::int AS member_count
+		FROM companies c
+		LEFT JOIN users u ON u.company_id = c.id
+		GROUP BY c.id, c.name, c.type, c.invite_code, c.address, c.tax_id, c.created_at
+		ORDER BY c.name ASC`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch companies"})
+		return
+	}
+	defer rows.Close()
+
+	companies := make([]gin.H, 0)
+	for rows.Next() {
+		var id, name, typ, inviteCode, address, taxID string
+		var createdAt time.Time
+		var memberCount int
+		if err := rows.Scan(&id, &name, &typ, &inviteCode, &address, &taxID, &createdAt, &memberCount); err != nil {
+			continue
+		}
+		entry := gin.H{
+			"id": id, "name": name, "type": typ,
+			"address": address, "tax_id": taxID,
+			"created_at": createdAt, "member_count": memberCount,
+		}
+		// Only admin sees invite codes
+		if role == "admin" {
+			entry["invite_code"] = inviteCode
+		}
+		companies = append(companies, entry)
+	}
+	c.JSON(http.StatusOK, companies)
+}
+
+// CreateAdminCompany — admin only: create a new dealer company with auto-generated invite code.
+func CreateAdminCompany(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+
+	var role string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role); err != nil || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
+		return
+	}
+
+	var req models.CreateCompanyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Duplicate name check
+	var existing int
+	config.DB.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM companies WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))`, req.Name,
+	).Scan(&existing)
+	if existing > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ชื่อบริษัทนี้มีอยู่แล้ว"})
+		return
+	}
+
+	ctx := context.Background()
+	inviteCode := generateInviteCode(ctx, req.Name)
+
+	var co models.Company
+	err := config.DB.QueryRow(ctx,
+		`INSERT INTO companies (name, address, tax_id, invite_code, type)
+		 VALUES ($1, NULLIF($2,''), NULLIF($3,''), $4, 'dealer')
+		 RETURNING id, name, COALESCE(type,'dealer'), COALESCE(address,''), COALESCE(tax_id,''),
+		           invite_code, created_at`,
+		req.Name, req.Address, req.TaxID, inviteCode,
+	).Scan(&co.ID, &co.Name, &co.Type, &co.Address, &co.TaxID, &co.InviteCode, &co.CreatedAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create company: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, co)
+}
 
 func GetCompanies(c *gin.Context) {
 	rows, err := config.DB.Query(context.Background(),

@@ -70,6 +70,9 @@ func main() {
 		api.GET("/companies", handlers.GetCompanies)
 		api.POST("/companies", handlers.CreateCompany)
 
+		api.GET("/admin/companies", handlers.ListAdminCompanies)
+		api.POST("/admin/companies", handlers.CreateAdminCompany)
+
 		api.POST("/documents", handlers.CreateDocument)
 		api.DELETE("/documents/:id", handlers.DeleteDocument)
 	}
