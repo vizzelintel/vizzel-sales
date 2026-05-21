@@ -82,6 +82,20 @@ func UpdateMe(c *gin.Context) {
 		return
 	}
 
+	// Email changes must go through OTP flow (/auth/email/send-otp + verify-otp).
+	if strings.TrimSpace(req.Email) != "" {
+		var currentEmail string
+		_ = config.DB.QueryRow(context.Background(),
+			`SELECT COALESCE(email,'') FROM users WHERE id = $1::uuid`, userIDStr,
+		).Scan(&currentEmail)
+		if strings.TrimSpace(req.Email) != strings.TrimSpace(currentEmail) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "เปลี่ยนอีเมลต้องยืนยัน OTP ก่อน กรุณากดส่งรหัส OTP ในหน้าโปรไฟล์",
+			})
+			return
+		}
+	}
+
 	fullName := strings.TrimSpace(req.FirstName + " " + req.LastName)
 	if fullName == "" {
 		fullName = strings.TrimSpace(req.FirstName)
@@ -93,14 +107,9 @@ func UpdateMe(c *gin.Context) {
 		     last_name  = $2,
 		     full_name  = CASE WHEN $3 <> '' THEN $3 ELSE full_name END,
 		     phone      = $4,
-		     email      = COALESCE(NULLIF($5,''), email),
-		     email_verified_at = CASE
-		       WHEN NULLIF($5,'') IS NOT NULL AND COALESCE(email,'') <> $5 THEN NULL
-		       ELSE email_verified_at
-		     END,
-		     region     = $6
-		 WHERE id = $7::uuid`,
-		req.FirstName, req.LastName, fullName, req.Phone, req.Email, req.Region, userIDStr,
+		     region     = $5
+		 WHERE id = $6::uuid`,
+		req.FirstName, req.LastName, fullName, req.Phone, req.Region, userIDStr,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
