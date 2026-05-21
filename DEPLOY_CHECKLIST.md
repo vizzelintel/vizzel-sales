@@ -34,6 +34,13 @@ Single-environment deployment (production only).
 - [ ] Optional calendar secrets configured when calendar feature is used:
   - [ ] `GOOGLE_CALENDAR_CREDENTIALS_JSON`
   - [ ] `GOOGLE_CALENDAR_ID`
+  - [ ] `SMTP_HOST`
+  - [ ] `SMTP_PORT`
+  - [ ] `SMTP_USERNAME`
+  - [ ] `SMTP_PASSWORD`
+  - [ ] `SMTP_FROM_EMAIL`
+  - [ ] `SMTP_FROM_NAME`
+  - [ ] `EMAIL_OTP_SECRET`
 - [ ] CORS allows `https://vizzelintel.github.io`.
 - [ ] `/health` returns `200`.
 
@@ -43,6 +50,7 @@ Single-environment deployment (production only).
 - [ ] Login redirect URI: `https://vizzelintel.github.io/vizzel-sales-frontend/`.
 - [ ] Backend webhook URL set to `https://vizzel-sales-api.fly.dev/api/v1/webhook` (if webhook is used).
 - [ ] LINE channel secret matches `LINE_CHANNEL_SECRET` on Fly.
+- [ ] LINE channel is not in `developing` mode for public users (or all testers are explicitly added).
 
 ## 5) Lark
 
@@ -67,3 +75,6 @@ Single-environment deployment (production only).
 - [ ] Upload `contract` sets `status = contract` and clears auto reject timer.
 - [ ] Only support/admin can upload `closing`.
 - [ ] Lark sync logs show successful upsert.
+- [ ] Unverified user is blocked with `email_not_verified`.
+- [ ] OTP email send/verify flow works.
+- [ ] Appointment status sends calendar invite mail (`.ics`) successfully.

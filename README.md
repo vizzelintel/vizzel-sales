@@ -23,6 +23,21 @@ Optional for Calendar integration:
 
 - `GOOGLE_CALENDAR_CREDENTIALS_JSON`
 - `GOOGLE_CALENDAR_ID`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD`
+- `SMTP_FROM_EMAIL`
+- `SMTP_FROM_NAME`
+- `EMAIL_OTP_SECRET`
+
+## Email Verification + Calendar Mail
+
+- New users must verify email with OTP before using business endpoints.
+- OTP endpoints:
+  - `POST /api/v1/auth/email/send-otp`
+  - `POST /api/v1/auth/email/verify-otp`
+- Appointment status updates now also attempt email calendar invite (`.ics`) so users on Google/Outlook can import events.
 
 Use `.env.example` as the canonical template for production setup.
 

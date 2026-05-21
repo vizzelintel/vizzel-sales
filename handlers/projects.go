@@ -69,6 +69,11 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 		&p.AppointmentDate, &p.AppointmentNote, &p.CalendarEventID,
 		&p.PresentType, &p.DetailNote, &p.AutoRejectAt,
 	)
+	// Backward compatibility: older DB constraints may still store "registrator".
+	// Keep API contract stable by normalizing to "register" for clients.
+	if p.Status == "registrator" {
+		p.Status = "register"
+	}
 	return p, err
 }
 
@@ -123,31 +128,48 @@ func CreateProject(c *gin.Context) {
 
 	now := time.Now().UTC()
 	var project models.Project
-	err := config.DB.QueryRow(context.Background(),
-		`INSERT INTO projects
+	var err error
+	insertSQL := `INSERT INTO projects
 			(agency_name, agency_type, region,
 			 contact_person, contact_position, contact_phone,
 			 status, company_id, created_by, created_at,
 			 auto_reject_at)
 		 VALUES ($1, NULLIF($2,''), $3, $4, $5, $6,
-		         'register', NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9,
+		         $10, NULLIF($7,'')::uuid, NULLIF($8,'')::uuid, $9,
 		         NOW() + INTERVAL '90 days')
-		 RETURNING `+projectCols,
-		req.AgencyName, req.AgencyType, req.Region,
-		req.ContactPerson, req.ContactPosition, req.ContactPhone,
-		req.CompanyID, userIDStr, now,
-	).Scan(
-		&project.ID, &project.CompanyID, &project.AgencyName,
-		&project.AgencyType, &project.Region,
-		&project.ContactPerson, &project.ContactPosition, &project.ContactPhone,
-		&project.Status, &project.StatusNote, &project.RejectReason,
-		&project.CreatedBy, &project.CreatedAt,
-		&project.AppointmentDate, &project.AppointmentNote, &project.CalendarEventID,
-		&project.PresentType, &project.DetailNote, &project.AutoRejectAt,
-	)
+		 RETURNING ` + projectCols
+
+	// Try "register" first (new canonical value), then fallback to legacy
+	// "registrator" for databases that still have old check constraints.
+	for _, dbStatus := range []string{"register", "registrator"} {
+		err = config.DB.QueryRow(context.Background(),
+			insertSQL,
+			req.AgencyName, req.AgencyType, req.Region,
+			req.ContactPerson, req.ContactPosition, req.ContactPhone,
+			req.CompanyID, userIDStr, now, dbStatus,
+		).Scan(
+			&project.ID, &project.CompanyID, &project.AgencyName,
+			&project.AgencyType, &project.Region,
+			&project.ContactPerson, &project.ContactPosition, &project.ContactPhone,
+			&project.Status, &project.StatusNote, &project.RejectReason,
+			&project.CreatedBy, &project.CreatedAt,
+			&project.AppointmentDate, &project.AppointmentNote, &project.CalendarEventID,
+			&project.PresentType, &project.DetailNote, &project.AutoRejectAt,
+		)
+		if err == nil {
+			break
+		}
+		// Fallback only for legacy status check constraint mismatch.
+		if !strings.Contains(err.Error(), "projects_status_check") {
+			break
+		}
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
 		return
+	}
+	if project.Status == "registrator" {
+		project.Status = "register"
 	}
 
 	c.JSON(http.StatusCreated, project)
@@ -155,11 +177,11 @@ func CreateProject(c *gin.Context) {
 }
 
 func GetProjects(c *gin.Context) {
-	search     := strings.TrimSpace(c.Query("search"))
-	company    := strings.TrimSpace(c.Query("company"))   // company name filter
+	search := strings.TrimSpace(c.Query("search"))
+	company := strings.TrimSpace(c.Query("company")) // company name filter
 	agencyType := strings.TrimSpace(c.Query("agency_type"))
-	province   := strings.TrimSpace(c.Query("province"))  // maps to projects.region
-	statusF    := strings.TrimSpace(c.Query("status"))
+	province := strings.TrimSpace(c.Query("province")) // maps to projects.region
+	statusF := strings.TrimSpace(c.Query("status"))
 
 	// Determine caller's role + company_id for scoping
 	userID, _ := c.Get("user_id")
@@ -282,6 +304,9 @@ func UpdateProjectStatus(c *gin.Context) {
 	// Google Calendar: fire for appointment statuses when appointment_date is provided.
 	calendarEventID := ""
 	calendarOK := false
+	calendarMessage := ""
+	calendarMailOK := false
+	calendarMailMessage := ""
 	if statusLabel, isAppt := appointmentStatusLabel[req.Status]; isAppt && req.AppointmentDate != "" {
 		var agencyName, contactPerson, contactPhone string
 		_ = config.DB.QueryRow(context.Background(),
@@ -305,6 +330,32 @@ func UpdateProjectStatus(c *gin.Context) {
 		if evID, err := CreateCalendarEvent(title, desc, req.AppointmentDate, attendees); err == nil {
 			calendarEventID = evID
 			calendarOK = true
+			calendarMessage = "บันทึกนัดหมายใน Google Calendar แล้ว"
+		} else {
+			calendarMessage = "ไม่สามารถบันทึก Google Calendar ได้: " + err.Error()
+		}
+
+		startAt, parseErr := time.Parse(time.RFC3339, req.AppointmentDate)
+		if parseErr != nil {
+			calendarMailMessage = "รูปแบบวันเวลานัดหมายไม่ถูกต้อง"
+		} else if userEmail == "" {
+			calendarMailMessage = "ไม่พบอีเมลผู้ใช้งานสำหรับส่งคำเชิญปฏิทิน"
+		} else if err := SendCalendarInviteEmail(userEmail, agencyName, statusLabel, req.AppointmentNote, startAt, id); err == nil {
+			calendarMailOK = true
+			if calendarMessage == "" {
+				calendarMessage = "ส่งคำเชิญปฏิทินทางอีเมลแล้ว"
+			}
+		} else {
+			calendarMailMessage = "ส่งคำเชิญปฏิทินทางอีเมลไม่สำเร็จ: " + err.Error()
+		}
+
+		if !calendarOK && !calendarMailOK {
+			if calendarMailMessage != "" {
+				calendarMessage = calendarMailMessage
+			}
+			if calendarMessage == "" {
+				calendarMessage = "ไม่สามารถบันทึกปฏิทินได้"
+			}
 		}
 	}
 
@@ -349,11 +400,14 @@ func UpdateProjectStatus(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":                id,
-		"status":            req.Status,
-		"present_type":      req.PresentType,
-		"calendar_event_id": calendarEventID,
-		"calendar_ok":       calendarOK,
+		"id":                    id,
+		"status":                req.Status,
+		"present_type":          req.PresentType,
+		"calendar_event_id":     calendarEventID,
+		"calendar_ok":           calendarOK || calendarMailOK,
+		"calendar_message":      calendarMessage,
+		"calendar_mail_ok":      calendarMailOK,
+		"calendar_mail_message": calendarMailMessage,
 	})
 	// Sync updated project to Lark in background
 	go func() {

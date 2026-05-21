@@ -24,13 +24,12 @@ var singleUploadDocs = map[string]bool{
 	"quotation_dealer":  true,
 	"tor_support":       true,
 	"tor_dealer":        true,
-	"contract": true,
-	"closing":  true,
+	"contract":          true,
+	"closing":           true,
 }
 
 // site_survey allows up to 3 uploads.
 const siteSurveyLimit = 3
-
 
 // allowedExts maps accepted lowercase extensions to their canonical MIME type.
 var allowedExts = map[string]string{
@@ -245,7 +244,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 		if currentStatus == "contract" {
 			nextStatus = "closed"
 		}
-	// site_survey: no status change
+		// site_survey: no status change
 	}
 
 	fmt.Printf("[STATUS] project=%s docType=%s ownerIsSupport=%v currentStatus=%s newStatus=%s\n",
@@ -295,7 +294,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 // Returns 403 if the project is closed.
 func DeleteDocument(c *gin.Context) {
 	docID := c.Param("id")
-	ctx   := context.Background()
+	ctx := context.Background()
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
@@ -433,7 +432,7 @@ func reconcileProjectStatusAfterDocumentDelete(projectID, deletedDocType, userID
 // The delete URL format is: {BASE}/storage/v1/object/{bucket}/{file}
 func deleteFromStorage(fileURL string) {
 	supabaseURL := os.Getenv("SUPABASE_URL")
-	serviceKey  := os.Getenv("SUPABASE_SERVICE_KEY")
+	serviceKey := os.Getenv("SUPABASE_SERVICE_KEY")
 	if supabaseURL == "" || serviceKey == "" || fileURL == "" {
 		return
 	}

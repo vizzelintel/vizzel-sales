@@ -23,7 +23,7 @@ func getLarkAccessToken() (string, error) {
 	if larkCachedToken != "" && time.Now().Before(larkTokenExpiry) {
 		return larkCachedToken, nil
 	}
-	appID     := os.Getenv("LARK_APP_ID")
+	appID := os.Getenv("LARK_APP_ID")
 	appSecret := os.Getenv("LARK_APP_SECRET")
 	if appID == "" || appSecret == "" {
 		return "", fmt.Errorf("LARK credentials not configured")
@@ -162,7 +162,7 @@ func updateLarkRecord(token, appToken, tableID, recordID string, fields map[stri
 // Safe to call in a goroutine; returns silently if Lark is unconfigured.
 func SyncProjectToLark(p models.Project) {
 	appToken := os.Getenv("LARK_BASE_APP_TOKEN")
-	tableID  := os.Getenv("LARK_TABLE_ID")
+	tableID := os.Getenv("LARK_TABLE_ID")
 	if appToken == "" || tableID == "" {
 		return
 	}
@@ -180,7 +180,7 @@ func SyncProjectToLark(p models.Project) {
 		).Scan(&companyName)
 	}
 
-	fields   := buildLarkFields(p, companyName)
+	fields := buildLarkFields(p, companyName)
 	recordID, err := findLarkRecord(token, appToken, tableID, p.ID)
 	if err != nil {
 		log.Printf("[LARK] search error project=%s: %v\n", p.ID, err)

@@ -38,8 +38,8 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("line_id", claims["sub"])  // LINE user ID string
-		c.Set("user_id", claims["uid"])  // DB UUID string
+		c.Set("line_id", claims["sub"]) // LINE user ID string
+		c.Set("user_id", claims["uid"]) // DB UUID string
 		c.Set("name", claims["name"])
 		c.Next()
 	}

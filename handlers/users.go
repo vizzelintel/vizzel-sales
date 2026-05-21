@@ -15,18 +15,19 @@ func GetMe(c *gin.Context) {
 	userIDStr, _ := userID.(string)
 
 	type meResult struct {
-		ID          string    `json:"id"`
-		LineID      string    `json:"line_id"`
-		FullName    string    `json:"full_name"`
-		FirstName   string    `json:"first_name"`
-		LastName    string    `json:"last_name"`
-		Role        string    `json:"role"`
-		Email       string    `json:"email"`
-		Phone       string    `json:"phone"`
-		Region      string    `json:"region"`
-		CompanyID   string    `json:"company_id"`
-		CompanyName string    `json:"company_name"`
-		CreatedAt   time.Time `json:"created_at"`
+		ID            string    `json:"id"`
+		LineID        string    `json:"line_id"`
+		FullName      string    `json:"full_name"`
+		FirstName     string    `json:"first_name"`
+		LastName      string    `json:"last_name"`
+		Role          string    `json:"role"`
+		Email         string    `json:"email"`
+		Phone         string    `json:"phone"`
+		Region        string    `json:"region"`
+		CompanyID     string    `json:"company_id"`
+		CompanyName   string    `json:"company_name"`
+		EmailVerified bool      `json:"email_verified"`
+		CreatedAt     time.Time `json:"created_at"`
 	}
 
 	var u meResult
@@ -34,12 +35,13 @@ func GetMe(c *gin.Context) {
 		`SELECT u.id::text, u.line_id,
 		        COALESCE(u.full_name,''), COALESCE(u.first_name,''), COALESCE(u.last_name,''),
 		        COALESCE(u.role,''), COALESCE(u.email,''), COALESCE(u.phone,''), COALESCE(u.region,''),
-		        COALESCE(u.company_id::text,''), COALESCE(c.name,''), u.created_at
+		        COALESCE(u.company_id::text,''), COALESCE(c.name,''),
+		        (u.email_verified_at IS NOT NULL), u.created_at
 		 FROM users u
 		 LEFT JOIN companies c ON c.id = u.company_id
 		 WHERE u.id = $1::uuid`, userIDStr,
 	).Scan(&u.ID, &u.LineID, &u.FullName, &u.FirstName, &u.LastName,
-		&u.Role, &u.Email, &u.Phone, &u.Region, &u.CompanyID, &u.CompanyName, &u.CreatedAt)
+		&u.Role, &u.Email, &u.Phone, &u.Region, &u.CompanyID, &u.CompanyName, &u.EmailVerified, &u.CreatedAt)
 
 	if err != nil {
 		// Fallback to line_id from JWT claim
@@ -48,12 +50,13 @@ func GetMe(c *gin.Context) {
 			`SELECT u.id::text, u.line_id,
 			        COALESCE(u.full_name,''), COALESCE(u.first_name,''), COALESCE(u.last_name,''),
 			        COALESCE(u.role,''), COALESCE(u.email,''), COALESCE(u.phone,''), COALESCE(u.region,''),
-			        COALESCE(u.company_id::text,''), COALESCE(c.name,''), u.created_at
+			        COALESCE(u.company_id::text,''), COALESCE(c.name,''),
+			        (u.email_verified_at IS NOT NULL), u.created_at
 			 FROM users u
 			 LEFT JOIN companies c ON c.id = u.company_id
 			 WHERE u.line_id = $1`, lineID,
 		).Scan(&u.ID, &u.LineID, &u.FullName, &u.FirstName, &u.LastName,
-			&u.Role, &u.Email, &u.Phone, &u.Region, &u.CompanyID, &u.CompanyName, &u.CreatedAt)
+			&u.Role, &u.Email, &u.Phone, &u.Region, &u.CompanyID, &u.CompanyName, &u.EmailVerified, &u.CreatedAt)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 			return
@@ -91,6 +94,10 @@ func UpdateMe(c *gin.Context) {
 		     full_name  = CASE WHEN $3 <> '' THEN $3 ELSE full_name END,
 		     phone      = $4,
 		     email      = COALESCE(NULLIF($5,''), email),
+		     email_verified_at = CASE
+		       WHEN NULLIF($5,'') IS NOT NULL AND COALESCE(email,'') <> $5 THEN NULL
+		       ELSE email_verified_at
+		     END,
 		     region     = $6
 		 WHERE id = $7::uuid`,
 		req.FirstName, req.LastName, fullName, req.Phone, req.Email, req.Region, userIDStr,

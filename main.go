@@ -52,6 +52,10 @@ func main() {
 	api := r.Group("/api/v1")
 	api.Use(middleware.JWTAuth())
 	{
+		api.POST("/auth/email/send-otp", handlers.SendEmailOTP)
+		api.POST("/auth/email/verify-otp", handlers.VerifyEmailOTP)
+		api.Use(middleware.EmailVerifiedGuard())
+
 		api.GET("/users/me", handlers.GetMe) // legacy path kept
 		api.GET("/me", handlers.GetMe)
 		api.PUT("/me", handlers.UpdateMe)
