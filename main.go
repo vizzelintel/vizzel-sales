@@ -81,6 +81,7 @@ func main() {
 		api.GET("/projects/:id/appointments", handlers.GetProjectAppointments)
 		api.POST("/projects/:id/appointments/:type", handlers.CreateProjectAppointment)
 		api.PUT("/projects/:id/appointments/:type", handlers.UpsertProjectAppointment)
+		api.PATCH("/projects/:id/appointments/:apptId", handlers.UpdateProjectAppointment)
 		api.DELETE("/projects/:id/appointments/:apptId", handlers.DeleteProjectAppointment)
 		api.GET("/projects/:id/documents", handlers.GetProjectDocuments)
 

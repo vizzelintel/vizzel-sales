@@ -27,6 +27,8 @@ type projectAppointment struct {
 	ScheduledAt     string `json:"scheduled_at"`
 	Note            string `json:"note,omitempty"`
 	PresentType     string `json:"present_type,omitempty"`
+	MeetSetup       string `json:"meet_setup,omitempty"` // self | vizzel (online present)
+	MeetLink        string `json:"meet_link,omitempty"`
 	CalendarEventID string `json:"calendar_event_id,omitempty"`
 }
 
@@ -43,7 +45,8 @@ func GetProjectAppointments(c *gin.Context) {
 
 func listProjectAppointments(ctx context.Context, projectID string) ([]projectAppointment, error) {
 	rows, err := config.DB.Query(ctx,
-		`SELECT id::text, appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,''), COALESCE(calendar_event_id,'')
+		`SELECT id::text, appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,''),
+		        COALESCE(meet_setup,''), COALESCE(meet_link,''), COALESCE(calendar_event_id,'')
 		 FROM project_appointments
 		 WHERE project_id = $1::uuid
 		 ORDER BY appt_type, scheduled_at ASC`,
@@ -58,7 +61,7 @@ func listProjectAppointments(ctx context.Context, projectID string) ([]projectAp
 	hasPresent := false
 	for rows.Next() {
 		var a projectAppointment
-		if err := rows.Scan(&a.ID, &a.Type, &a.ScheduledAt, &a.Note, &a.PresentType, &a.CalendarEventID); err != nil {
+		if err := rows.Scan(&a.ID, &a.Type, &a.ScheduledAt, &a.Note, &a.PresentType, &a.MeetSetup, &a.MeetLink, &a.CalendarEventID); err != nil {
 			continue
 		}
 		if a.Type == "present" {
@@ -109,6 +112,8 @@ func CreateProjectAppointment(c *gin.Context) {
 		ScheduledAt string `json:"scheduled_at" binding:"required"`
 		Note        string `json:"note"`
 		PresentType string `json:"present_type"`
+		MeetSetup   string `json:"meet_setup"`
+		MeetLink    string `json:"meet_link"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -117,6 +122,20 @@ func CreateProjectAppointment(c *gin.Context) {
 	if apptType == "present" && req.PresentType != "online" && req.PresentType != "onsite" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณาระบุรูปแบบ Present (online หรือ onsite)"})
 		return
+	}
+	meetSetup := strings.TrimSpace(req.MeetSetup)
+	meetLink := strings.TrimSpace(req.MeetLink)
+	if apptType == "present" && req.PresentType == "online" {
+		if meetSetup != "" && meetSetup != "self" && meetSetup != "vizzel" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "meet_setup ต้องเป็น self หรือ vizzel"})
+			return
+		}
+		if meetSetup == "" {
+			meetSetup = "self"
+		}
+	} else {
+		meetSetup = ""
+		meetLink = ""
 	}
 
 	startAt, err := time.Parse(time.RFC3339, req.ScheduledAt)
@@ -157,17 +176,20 @@ func CreateProjectAppointment(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
+	calNote := appointmentCalendarNote(strings.TrimSpace(req.Note), meetSetup, meetLink)
 	calendarEventID, calendarOK, calendarMessage, calendarMailOK := scheduleAppointmentNotifications(
-		c, projectID, label, agencyName, contactPerson, contactPhone, strings.TrimSpace(req.Note), startAt,
+		c, projectID, label, agencyName, contactPerson, contactPhone, calNote, startAt,
 	)
 
 	var apptID string
 	err = config.DB.QueryRow(ctx,
 		`INSERT INTO project_appointments
-			(project_id, appt_type, scheduled_at, note, present_type, calendar_event_id, created_by, updated_at)
-		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,'')::uuid, NOW())
+			(project_id, appt_type, scheduled_at, note, present_type, meet_setup, meet_link,
+			 calendar_event_id, created_by, updated_at)
+		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), NULLIF($9,'')::uuid, NOW())
 		 RETURNING id::text`,
-		projectID, apptType, startAt, strings.TrimSpace(req.Note), req.PresentType, calendarEventID, userIDStr,
+		projectID, apptType, startAt, strings.TrimSpace(req.Note), req.PresentType,
+		meetSetup, meetLink, calendarEventID, userIDStr,
 	).Scan(&apptID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกนัดหมายได้"})
@@ -185,7 +207,72 @@ func CreateProjectAppointment(c *gin.Context) {
 		"calendar_ok":           calendarOK || calendarMailOK,
 		"calendar_message":      calendarMessage,
 		"calendar_mail_ok":      calendarMailOK,
+		"meet_setup":          meetSetup,
+		"meet_link":           meetLink,
 	})
+	go SyncProjectToLarkByID(projectID)
+}
+
+func appointmentCalendarNote(note, meetSetup, meetLink string) string {
+	var parts []string
+	if strings.TrimSpace(note) != "" {
+		parts = append(parts, note)
+	}
+	switch meetSetup {
+	case "vizzel":
+		parts = append(parts, "Google Meet: รอทีม Vizzel สร้างห้องและอัปเดตลิงก์")
+	case "self":
+		if meetLink != "" {
+			parts = append(parts, "Google Meet: "+meetLink)
+		} else {
+			parts = append(parts, "Google Meet: Dealer สร้างห้องเอง/แนบลิงก์ทีหลัง")
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// UpdateProjectAppointment updates meet link (and optional note) on an existing row.
+func UpdateProjectAppointment(c *gin.Context) {
+	projectID := c.Param("id")
+	apptID := strings.TrimSpace(c.Param("apptId"))
+
+	var req struct {
+		MeetLink string `json:"meet_link"`
+		Note     string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var projectStatus string
+	err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&projectStatus)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+	if projectStatus == "closed" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่สามารถแก้ไขได้ เนื่องจากงานปิดแล้ว"})
+		return
+	}
+
+	tag, err := config.DB.Exec(context.Background(),
+		`UPDATE project_appointments
+		 SET meet_link = $1, note = COALESCE(NULLIF($2,''), note), updated_at = NOW()
+		 WHERE id = $3::uuid AND project_id = $4::uuid`,
+		strings.TrimSpace(req.MeetLink), strings.TrimSpace(req.Note), apptID, projectID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "อัปเดตไม่สำเร็จ"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบนัดหมาย"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "อัปเดตนัดหมายแล้ว", "meet_link": strings.TrimSpace(req.MeetLink)})
 	go SyncProjectToLarkByID(projectID)
 }
 
@@ -335,12 +422,13 @@ func isGoogleCalendarSkipped(err error) bool {
 		strings.Contains(msg, "parse credentials")
 }
 
-func insertProjectAppointmentRow(ctx context.Context, projectID, apptType, userID, presentType, calendarEventID string, startAt time.Time, note string) error {
+func insertProjectAppointmentRow(ctx context.Context, projectID, apptType, userID, presentType, meetSetup, meetLink, calendarEventID string, startAt time.Time, note string) error {
 	_, err := config.DB.Exec(ctx,
 		`INSERT INTO project_appointments
-			(project_id, appt_type, scheduled_at, note, present_type, calendar_event_id, created_by, updated_at)
-		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,'')::uuid, NOW())`,
-		projectID, apptType, startAt, note, presentType, calendarEventID, userID,
+			(project_id, appt_type, scheduled_at, note, present_type, meet_setup, meet_link,
+			 calendar_event_id, created_by, updated_at)
+		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), NULLIF($9,'')::uuid, NOW())`,
+		projectID, apptType, startAt, note, presentType, meetSetup, meetLink, calendarEventID, userID,
 	)
 	if err == nil && apptType == "present" {
 		syncLatestPresentLegacyColumns(ctx, projectID)

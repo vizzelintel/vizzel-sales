@@ -127,7 +127,7 @@ func replaceAppointmentsFromLark(ctx context.Context, projectID, apptType string
 	if err := deleteAllAppointmentsOfType(ctx, projectID, apptType); err != nil {
 		return err
 	}
-	if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", presentType, "", at, note); err != nil {
+	if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", presentType, "", "", "", at, note); err != nil {
 		return err
 	}
 	return nil

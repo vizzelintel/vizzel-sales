@@ -466,7 +466,7 @@ func UpdateProjectStatus(c *gin.Context) {
 	if req.AppointmentDate != "" {
 		if _, isAppt := appointmentStatusLabel[req.Status]; isAppt {
 			if startAt, err := time.Parse(time.RFC3339, req.AppointmentDate); err == nil {
-				_ = insertProjectAppointmentRow(context.Background(), id, req.Status, userIDStr, req.PresentType, calendarEventID, startAt, req.AppointmentNote)
+				_ = insertProjectAppointmentRow(context.Background(), id, req.Status, userIDStr, req.PresentType, "", "", calendarEventID, startAt, req.AppointmentNote)
 			}
 		}
 	}
