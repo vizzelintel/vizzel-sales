@@ -519,6 +519,67 @@ func DeleteAdminCompanyMember(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "ลบพนักงานสำเร็จ"})
 }
 
+// DeleteAdminCompany removes a dealer company and all related data (admin only, not own company).
+func DeleteAdminCompany(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	companyID := c.Param("id")
+
+	var role, callerCompanyID string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,''), COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role, &callerCompanyID); err != nil || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
+		return
+	}
+	if callerCompanyID != "" && callerCompanyID == companyID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่สามารถลบบริษัทที่ตัวเองสังกัดอยู่ได้"})
+		return
+	}
+
+	var exists int
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM companies WHERE id = $1::uuid`, companyID,
+	).Scan(&exists); err != nil || exists == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบบริษัท"})
+		return
+	}
+
+	ctx := context.Background()
+	tx, err := config.DB.Begin(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบบริษัทไม่สำเร็จ"})
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	_, _ = tx.Exec(ctx, `DELETE FROM documents WHERE project_id IN (SELECT id FROM projects WHERE company_id = $1::uuid)`, companyID)
+	_, _ = tx.Exec(ctx, `DELETE FROM project_appointments WHERE project_id IN (SELECT id FROM projects WHERE company_id = $1::uuid)`, companyID)
+	_, _ = tx.Exec(ctx, `DELETE FROM project_status_logs WHERE project_id IN (SELECT id FROM projects WHERE company_id = $1::uuid)`, companyID)
+	if _, err = tx.Exec(ctx, `DELETE FROM projects WHERE company_id = $1::uuid`, companyID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบโครงการของบริษัทไม่สำเร็จ"})
+		return
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM users WHERE company_id = $1::uuid`, companyID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบพนักงานของบริษัทไม่สำเร็จ"})
+		return
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM companies WHERE id = $1::uuid`, companyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบบริษัทไม่สำเร็จ"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบบริษัท"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบบริษัทไม่สำเร็จ"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ลบบริษัทสำเร็จ"})
+}
+
 func CreateCompany(c *gin.Context) {
 	var req models.CreateCompanyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
