@@ -431,7 +431,36 @@ func UpdateMemberRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "อัปเดต role สำเร็จ"})
 }
 
-// DeleteCompanyMember removes a user from the company (admin only, not self).
+func deleteCompanyMemberCore(ctx context.Context, callerID, targetID, expectedCompanyID string) error {
+	if callerID == targetID {
+		return fmt.Errorf("ไม่สามารถลบบัญชีของตัวเองได้")
+	}
+	var targetCompany string
+	if err := config.DB.QueryRow(ctx,
+		`SELECT COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, targetID,
+	).Scan(&targetCompany); err != nil {
+		return fmt.Errorf("ไม่พบพนักงาน")
+	}
+	if expectedCompanyID != "" && targetCompany != expectedCompanyID {
+		return fmt.Errorf("ไม่พบพนักงานในบริษัทนี้")
+	}
+
+	_, _ = config.DB.Exec(ctx, `UPDATE projects SET created_by = NULL WHERE created_by = $1::uuid`, targetID)
+	_, _ = config.DB.Exec(ctx, `UPDATE project_appointments SET created_by = NULL WHERE created_by = $1::uuid`, targetID)
+	_, _ = config.DB.Exec(ctx, `UPDATE documents SET uploaded_by = NULL WHERE uploaded_by = $1::uuid`, targetID)
+	_, _ = config.DB.Exec(ctx, `UPDATE project_status_logs SET changed_by = NULL WHERE changed_by = $1::uuid`, targetID)
+
+	tag, err := config.DB.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, targetID)
+	if err != nil {
+		return fmt.Errorf("ลบพนักงานไม่สำเร็จ: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("ไม่พบพนักงาน")
+	}
+	return nil
+}
+
+// DeleteCompanyMember removes a user from the caller's company (admin only, not self).
 func DeleteCompanyMember(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	uid, _ := userID.(string)
@@ -444,27 +473,47 @@ func DeleteCompanyMember(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
 		return
 	}
-	if uid == targetID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่สามารถลบบัญชีของตัวเองได้"})
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่พบบริษัทของผู้ใช้งาน"})
 		return
 	}
+	if err := deleteCompanyMemberCore(context.Background(), uid, targetID, companyID); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "ตัวเอง") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		} else if strings.Contains(msg, "ไม่พบ") {
+			c.JSON(http.StatusNotFound, gin.H{"error": msg})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ลบพนักงานสำเร็จ"})
+}
 
-	var targetCompany string
-	err := config.DB.QueryRow(context.Background(),
-		`SELECT COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, targetID,
-	).Scan(&targetCompany)
-	if err != nil || targetCompany != companyID {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบพนักงานในบริษัทนี้"})
-		return
-	}
+// DeleteAdminCompanyMember removes a user from any company (platform admin).
+func DeleteAdminCompanyMember(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	companyID := c.Param("id")
+	targetID := c.Param("memberId")
 
-	tag, err := config.DB.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, targetID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบพนักงานไม่สำเร็จ"})
+	var role string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role); err != nil || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
 		return
 	}
-	if tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบพนักงาน"})
+	if err := deleteCompanyMemberCore(context.Background(), uid, targetID, companyID); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "ตัวเอง") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		} else if strings.Contains(msg, "ไม่พบ") {
+			c.JSON(http.StatusNotFound, gin.H{"error": msg})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "ลบพนักงานสำเร็จ"})

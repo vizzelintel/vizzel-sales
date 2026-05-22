@@ -73,6 +73,7 @@ func main() {
 		api.GET("/company/members", handlers.GetCompanyMembers)
 		api.PUT("/company/members/:id/role", handlers.UpdateMemberRole)
 		api.DELETE("/company/members/:id", handlers.DeleteCompanyMember)
+		api.DELETE("/admin/companies/:id/members/:memberId", handlers.DeleteAdminCompanyMember)
 
 		api.GET("/projects", handlers.GetProjects)
 		api.POST("/projects", handlers.CreateProject)
