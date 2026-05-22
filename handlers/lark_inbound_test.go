@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLarkFieldText(t *testing.T) {
 	if got := larkFieldText(map[string]interface{}{"text": "  hello  "}); got != "hello" {
@@ -36,5 +39,25 @@ func TestParseLarkFieldsToPatch(t *testing.T) {
 	}
 	if !p.SetDetailNote || p.DetailNote != "บันทึกจาก Lark" {
 		t.Fatalf("detail note %+v", p)
+	}
+}
+
+func TestParseInboundAppointmentFieldsClearDemo(t *testing.T) {
+	fields := map[string]interface{}{
+		larkColApptDemoDate: nil,
+		larkColDemoNote:     "",
+	}
+	ch := parseInboundAppointmentFields(fields)
+	d, ok := ch["demo"]
+	if !ok || !d.clearDate || !d.clearNote {
+		t.Fatalf("got %+v", ch)
+	}
+}
+
+func TestParseLarkBitableDateMillis(t *testing.T) {
+	ms := float64(time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC).UnixMilli())
+	tm, ok := parseLarkBitableDate(ms)
+	if !ok || tm.UnixMilli() != int64(ms) {
+		t.Fatalf("got %v ok=%v", tm, ok)
 	}
 }

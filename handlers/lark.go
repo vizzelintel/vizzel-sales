@@ -466,3 +466,51 @@ func LarkSyncProbe(c *gin.Context) {
 		"message":    "synced to Lark",
 	})
 }
+
+// LarkPullInbound (admin) pulls one project row from Lark Bitable into the database.
+func LarkPullInbound(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	var role string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role); err != nil || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
+		return
+	}
+
+	projectID := strings.TrimSpace(c.Query("project_id"))
+	if projectID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project_id required"})
+		return
+	}
+
+	var larkRecordID string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(lark_record_id,'') FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&larkRecordID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		return
+	}
+	if larkRecordID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project has no lark_record_id"})
+		return
+	}
+
+	if err := PullLarkRecordInbound("", larkRecordID); err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "project_id": projectID, "error": err.Error()})
+		return
+	}
+
+	var detailNote string
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(detail_note,'') FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&detailNote)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":          true,
+		"project_id":  projectID,
+		"detail_note": detailNote,
+		"message":     "pulled from Lark",
+	})
+}

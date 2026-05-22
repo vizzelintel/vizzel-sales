@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"vizzel-backend/config"
 )
 
+const maxAppointmentsPerType = 10
+
 var validApptTypes = map[string]string{
 	"present":     "นัดหมาย Present",
 	"demo":        "นัดหมาย Demo",
@@ -19,6 +23,7 @@ var validApptTypes = map[string]string{
 }
 
 type projectAppointment struct {
+	ID              string `json:"id"`
 	Type            string `json:"type"`
 	ScheduledAt     string `json:"scheduled_at"`
 	Note            string `json:"note,omitempty"`
@@ -28,16 +33,33 @@ type projectAppointment struct {
 
 func GetProjectAppointments(c *gin.Context) {
 	projectID := c.Param("id")
-	rows, err := config.DB.Query(context.Background(),
-		`SELECT appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,''), COALESCE(calendar_event_id,'')
-		 FROM project_appointments
-		 WHERE project_id = $1::uuid
-		 ORDER BY scheduled_at ASC`,
-		projectID,
-	)
+
+	var larkRecordID string
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(lark_record_id,'') FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&larkRecordID)
+	if pullErr := MaybePullProjectFromLarkOnView(projectID, larkRecordID); pullErr != nil {
+		log.Printf("[LARK] pull on appointments project=%s: %v\n", projectID, pullErr)
+	}
+
+	list, err := listProjectAppointments(context.Background(), projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load appointments"})
 		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+func listProjectAppointments(ctx context.Context, projectID string) ([]projectAppointment, error) {
+	rows, err := config.DB.Query(ctx,
+		`SELECT id::text, appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,''), COALESCE(calendar_event_id,'')
+		 FROM project_appointments
+		 WHERE project_id = $1::uuid
+		 ORDER BY appt_type, scheduled_at ASC`,
+		projectID,
+	)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -45,7 +67,7 @@ func GetProjectAppointments(c *gin.Context) {
 	hasPresent := false
 	for rows.Next() {
 		var a projectAppointment
-		if err := rows.Scan(&a.Type, &a.ScheduledAt, &a.Note, &a.PresentType, &a.CalendarEventID); err != nil {
+		if err := rows.Scan(&a.ID, &a.Type, &a.ScheduledAt, &a.Note, &a.PresentType, &a.CalendarEventID); err != nil {
 			continue
 		}
 		if a.Type == "present" {
@@ -54,24 +76,36 @@ func GetProjectAppointments(c *gin.Context) {
 		list = append(list, a)
 	}
 
-	// Legacy projects may only have appointment_date on projects row (pre-migration).
 	if !hasPresent {
 		var legacyAt, legacyNote, legacyPresent string
-		_ = config.DB.QueryRow(context.Background(),
+		_ = config.DB.QueryRow(ctx,
 			`SELECT COALESCE(appointment_date::text,''), COALESCE(appointment_note,''), COALESCE(present_type,'')
 			 FROM projects WHERE id = $1::uuid`, projectID,
 		).Scan(&legacyAt, &legacyNote, &legacyPresent)
 		if strings.TrimSpace(legacyAt) != "" {
 			list = append([]projectAppointment{{
-				Type: "present", ScheduledAt: legacyAt, Note: legacyNote, PresentType: legacyPresent,
+				ID:          "",
+				Type:        "present",
+				ScheduledAt: legacyAt,
+				Note:        legacyNote,
+				PresentType: legacyPresent,
 			}}, list...)
 		}
 	}
-
-	c.JSON(http.StatusOK, list)
+	return list, nil
 }
 
-func UpsertProjectAppointment(c *gin.Context) {
+func countAppointmentsByType(ctx context.Context, projectID, apptType string) (int, error) {
+	var n int
+	err := config.DB.QueryRow(ctx,
+		`SELECT COUNT(*) FROM project_appointments WHERE project_id = $1::uuid AND appt_type = $2`,
+		projectID, apptType,
+	).Scan(&n)
+	return n, err
+}
+
+// CreateProjectAppointment adds one appointment row (max 10 per type). Does not change pipeline status.
+func CreateProjectAppointment(c *gin.Context) {
 	projectID := c.Param("id")
 	apptType := strings.TrimSpace(c.Param("type"))
 	label, ok := validApptTypes[apptType]
@@ -118,21 +152,14 @@ func UpsertProjectAppointment(c *gin.Context) {
 		return
 	}
 
-	// Demo / Site Survey are optional add-ons — do not change pipeline status.
-	if apptType == "demo" || apptType == "site_survey" {
-		if projectStatus == "register" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "กรุณานัดหมาย Present ก่อน"})
-			return
-		}
+	ctx := context.Background()
+	n, err := countAppointmentsByType(ctx, projectID, apptType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
 	}
-
-	var exists bool
-	_ = config.DB.QueryRow(context.Background(),
-		`SELECT EXISTS(SELECT 1 FROM project_appointments WHERE project_id = $1::uuid AND appt_type = $2)`,
-		projectID, apptType,
-	).Scan(&exists)
-	if exists {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "มีนัดหมายประเภทนี้แล้ว ไม่สามารถนัดซ้ำได้"})
+	if n >= maxAppointmentsPerType {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("นัด%sได้สูงสุด %d ครั้ง", label, maxAppointmentsPerType)})
 		return
 	}
 
@@ -143,31 +170,24 @@ func UpsertProjectAppointment(c *gin.Context) {
 		c, projectID, label, agencyName, contactPerson, contactPhone, strings.TrimSpace(req.Note), startAt,
 	)
 
-	_, err = config.DB.Exec(context.Background(),
+	var apptID string
+	err = config.DB.QueryRow(ctx,
 		`INSERT INTO project_appointments
 			(project_id, appt_type, scheduled_at, note, present_type, calendar_event_id, created_by, updated_at)
-		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,'')::uuid, NOW())`,
+		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,'')::uuid, NOW())
+		 RETURNING id::text`,
 		projectID, apptType, startAt, strings.TrimSpace(req.Note), req.PresentType, calendarEventID, userIDStr,
-	)
+	).Scan(&apptID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถบันทึกนัดหมายได้"})
 		return
 	}
 
-	// Keep legacy columns in sync for the latest primary appointment (present only).
-	if apptType == "present" {
-		_, _ = config.DB.Exec(context.Background(),
-			`UPDATE projects
-			 SET appointment_date = $1, appointment_note = $2, present_type = $3,
-			     calendar_event_id = NULLIF($4,''), last_activity_at = NOW(),
-			     auto_reject_at = NOW() + INTERVAL '90 days'
-			 WHERE id = $5::uuid`,
-			startAt, strings.TrimSpace(req.Note), req.PresentType, calendarEventID, projectID,
-		)
-	}
+	syncLatestPresentLegacyColumns(ctx, projectID)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusCreated, gin.H{
 		"message":               "บันทึกนัดหมายสำเร็จ",
+		"id":                    apptID,
 		"type":                  apptType,
 		"scheduled_at":          req.ScheduledAt,
 		"calendar_event_id":     calendarEventID,
@@ -176,6 +196,84 @@ func UpsertProjectAppointment(c *gin.Context) {
 		"calendar_mail_ok":      calendarMailOK,
 	})
 	go SyncProjectToLarkByID(projectID)
+}
+
+// UpsertProjectAppointment is kept for backward compatibility — creates a new row (same as POST).
+func UpsertProjectAppointment(c *gin.Context) {
+	CreateProjectAppointment(c)
+}
+
+// DeleteProjectAppointment removes one appointment by id.
+func DeleteProjectAppointment(c *gin.Context) {
+	projectID := c.Param("id")
+	apptID := strings.TrimSpace(c.Param("apptId"))
+	if apptID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid appointment id"})
+		return
+	}
+
+	var projectStatus string
+	err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(status,'') FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&projectStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		}
+		return
+	}
+	if projectStatus == "closed" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่สามารถลบนัดหมายได้ เนื่องจากงานปิดแล้ว"})
+		return
+	}
+
+	tag, err := config.DB.Exec(context.Background(),
+		`DELETE FROM project_appointments WHERE id = $1::uuid AND project_id = $2::uuid`,
+		apptID, projectID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบนัดหมายไม่สำเร็จ"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบนัดหมาย"})
+		return
+	}
+
+	syncLatestPresentLegacyColumns(context.Background(), projectID)
+	c.JSON(http.StatusOK, gin.H{"message": "ลบนัดหมายสำเร็จ"})
+	go SyncProjectToLarkByID(projectID)
+}
+
+// syncLatestPresentLegacyColumns keeps projects.appointment_* in sync with the latest present row.
+func syncLatestPresentLegacyColumns(ctx context.Context, projectID string) {
+	var at, note, pt, calID string
+	err := config.DB.QueryRow(ctx,
+		`SELECT scheduled_at::text, COALESCE(note,''), COALESCE(present_type,''), COALESCE(calendar_event_id,'')
+		 FROM project_appointments
+		 WHERE project_id = $1::uuid AND appt_type = 'present'
+		 ORDER BY scheduled_at DESC
+		 LIMIT 1`, projectID,
+	).Scan(&at, &note, &pt, &calID)
+	if err != nil {
+		_, _ = config.DB.Exec(ctx,
+			`UPDATE projects
+			 SET appointment_date = NULL, appointment_note = NULL, present_type = NULL,
+			     calendar_event_id = NULL, last_activity_at = NOW()
+			 WHERE id = $1::uuid`, projectID,
+		)
+		return
+	}
+	_, _ = config.DB.Exec(ctx,
+		`UPDATE projects
+		 SET appointment_date = $1::timestamptz, appointment_note = $2, present_type = NULLIF($3,''),
+		     calendar_event_id = NULLIF($4,''), last_activity_at = NOW(),
+		     auto_reject_at = COALESCE(auto_reject_at, NOW() + INTERVAL '90 days')
+		 WHERE id = $5::uuid`,
+		at, note, pt, calID, projectID,
+	)
 }
 
 // scheduleAppointmentNotifications tries Google Calendar then SMTP .ics invite.
@@ -246,18 +344,15 @@ func isGoogleCalendarSkipped(err error) bool {
 		strings.Contains(msg, "parse credentials")
 }
 
-func upsertProjectAppointmentRow(ctx context.Context, projectID, apptType, userID, presentType, calendarEventID string, startAt time.Time, note string) {
-	_, _ = config.DB.Exec(ctx,
+func insertProjectAppointmentRow(ctx context.Context, projectID, apptType, userID, presentType, calendarEventID string, startAt time.Time, note string) error {
+	_, err := config.DB.Exec(ctx,
 		`INSERT INTO project_appointments
 			(project_id, appt_type, scheduled_at, note, present_type, calendar_event_id, created_by, updated_at)
-		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,'')::uuid, NOW())
-		 ON CONFLICT (project_id, appt_type)
-		 DO UPDATE SET
-		   scheduled_at = EXCLUDED.scheduled_at,
-		   note = EXCLUDED.note,
-		   present_type = EXCLUDED.present_type,
-		   calendar_event_id = EXCLUDED.calendar_event_id,
-		   updated_at = NOW()`,
+		 VALUES ($1::uuid, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,'')::uuid, NOW())`,
 		projectID, apptType, startAt, note, presentType, calendarEventID, userID,
 	)
+	if err == nil && apptType == "present" {
+		syncLatestPresentLegacyColumns(ctx, projectID)
+	}
+	return err
 }

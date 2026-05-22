@@ -76,7 +76,8 @@ Single-environment deployment (production only).
   - [ ] Lark Events → Request URL `https://vizzel-sales-api.fly.dev/api/v1/webhook/lark`
   - [ ] Subscribe event `drive.file.bitable_record_changed_v1` (bitable record changed)
   - [ ] Bitable column `รายละเอียดเพิ่มเติม` (Text) exists
-  - [ ] แก้รายละเอียดใน Lark → เปิดโครงการในแอปใหม่ → ข้อความตรงกัน
+  - [ ] แก้รายละเอียดใน Lark → **ปิดแล้วเปิดโครงการในแอปอีกครั้ง** → ข้อความตรงกัน (แอปดึงจาก Lark อัตโนมัติทุก ~20 วินาทีต่อโครงการ)
+  - [ ] ถ้า webhook ไม่มา: ดู Fly log ว่ามี `[LARK] webhook bitable` หรือไม่; ใช้ `POST /admin/lark-pull-inbound?project_id=...` (admin) ทดสอบดึงทันที
 
 ## 6) Frontend URLs
 

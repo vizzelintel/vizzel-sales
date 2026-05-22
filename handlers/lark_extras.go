@@ -106,11 +106,12 @@ func larkDateFieldValue(t time.Time) interface{} {
 	}
 }
 
-func loadLarkAppointments(projectID string) map[string]larkApptSlot {
-	out := map[string]larkApptSlot{}
+func loadLarkAppointmentsByType(projectID string) map[string][]larkApptSlot {
+	out := map[string][]larkApptSlot{}
 	rows, err := config.DB.Query(context.Background(),
 		`SELECT appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,'')
-		 FROM project_appointments WHERE project_id = $1::uuid`,
+		 FROM project_appointments WHERE project_id = $1::uuid
+		 ORDER BY appt_type, scheduled_at ASC`,
 		projectID,
 	)
 	if err == nil {
@@ -119,23 +120,30 @@ func loadLarkAppointments(projectID string) map[string]larkApptSlot {
 			var typ, at, note, pt string
 			if rows.Scan(&typ, &at, &note, &pt) == nil {
 				if t, ok := parseLarkTimestamp(at); ok {
-					out[typ] = larkApptSlot{ScheduledAt: t, Note: note, PresentType: pt, HasTime: true}
+					out[typ] = append(out[typ], larkApptSlot{ScheduledAt: t, Note: note, PresentType: pt, HasTime: true})
 				}
 			}
 		}
 	}
 
-	if _, ok := out["present"]; !ok {
+	if len(out["present"]) == 0 {
 		var legacyAt, legacyNote, legacyPresent string
 		_ = config.DB.QueryRow(context.Background(),
 			`SELECT COALESCE(appointment_date::text,''), COALESCE(appointment_note,''), COALESCE(present_type,'')
 			 FROM projects WHERE id = $1::uuid`, projectID,
 		).Scan(&legacyAt, &legacyNote, &legacyPresent)
 		if t, ok := parseLarkTimestamp(legacyAt); ok {
-			out["present"] = larkApptSlot{ScheduledAt: t, Note: legacyNote, PresentType: legacyPresent, HasTime: true}
+			out["present"] = []larkApptSlot{{ScheduledAt: t, Note: legacyNote, PresentType: legacyPresent, HasTime: true}}
 		}
 	}
 	return out
+}
+
+func latestLarkApptSlot(slots []larkApptSlot) (larkApptSlot, bool) {
+	if len(slots) == 0 {
+		return larkApptSlot{}, false
+	}
+	return slots[len(slots)-1], true
 }
 
 type larkDocRow struct {
@@ -165,7 +173,7 @@ func loadLarkDocuments(projectID string) []larkDocRow {
 }
 
 func buildLarkAppointmentFields(projectID string) map[string]interface{} {
-	appts := loadLarkAppointments(projectID)
+	appts := loadLarkAppointmentsByType(projectID)
 	fields := map[string]interface{}{}
 
 	setDate := func(col string, slot larkApptSlot) {
@@ -177,38 +185,43 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 		fields[col] = strings.TrimSpace(note)
 	}
 
-	if s, ok := appts["present"]; ok {
+	if s, ok := latestLarkApptSlot(appts["present"]); ok {
 		setDate(larkColApptPresentDate, s)
 		if s.PresentType != "" {
 			fields[larkColPresentType] = s.PresentType
 		}
 		setNote(larkColPresentNote, s.Note)
 	}
-	if s, ok := appts["demo"]; ok {
+	if s, ok := latestLarkApptSlot(appts["demo"]); ok {
 		setDate(larkColApptDemoDate, s)
 		setNote(larkColDemoNote, s.Note)
 	}
-	if s, ok := appts["site_survey"]; ok {
+	if s, ok := latestLarkApptSlot(appts["site_survey"]); ok {
 		setDate(larkColApptSurveyDate, s)
 		setNote(larkColSurveyNote, s.Note)
 	}
 
 	var summaryLines []string
 	for _, typ := range []string{"present", "demo", "site_survey"} {
-		s, ok := appts[typ]
+		slots := appts[typ]
 		label := larkApptLabels[typ]
-		if !ok || !s.HasTime {
+		if len(slots) == 0 {
 			summaryLines = append(summaryLines, fmt.Sprintf("%s: —", label))
 			continue
 		}
-		line := fmt.Sprintf("%s: %s", label, formatLarkDisplayTime(s.ScheduledAt))
-		if typ == "present" && s.PresentType != "" {
-			line += " (" + s.PresentType + ")"
+		for i, s := range slots {
+			if !s.HasTime {
+				continue
+			}
+			line := fmt.Sprintf("%s #%d: %s", label, i+1, formatLarkDisplayTime(s.ScheduledAt))
+			if typ == "present" && s.PresentType != "" {
+				line += " (" + s.PresentType + ")"
+			}
+			if strings.TrimSpace(s.Note) != "" {
+				line += " — " + strings.TrimSpace(s.Note)
+			}
+			summaryLines = append(summaryLines, line)
 		}
-		if strings.TrimSpace(s.Note) != "" {
-			line += " — " + strings.TrimSpace(s.Note)
-		}
-		summaryLines = append(summaryLines, line)
 	}
 	fields[larkColApptSummary] = strings.Join(summaryLines, "\n")
 	return fields

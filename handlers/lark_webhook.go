@@ -147,6 +147,44 @@ func respondLarkChallenge(c *gin.Context, challenge string) {
 	c.JSON(http.StatusOK, gin.H{"challenge": challenge})
 }
 
+// extractBitableRecordActions walks webhook JSON when action_list shape differs (schema 2.0 variants).
+func extractBitableRecordActions(raw json.RawMessage) []larkRecordAction {
+	var out []larkRecordAction
+	seen := make(map[string]bool)
+	var walk func(v interface{})
+	walk = func(v interface{}) {
+		switch x := v.(type) {
+		case map[string]interface{}:
+			rid, _ := x["record_id"].(string)
+			rid = strings.TrimSpace(rid)
+			act, _ := x["action"].(string)
+			if rid != "" && !seen[rid] {
+				seen[rid] = true
+				out = append(out, larkRecordAction{RecordID: rid, Action: strings.TrimSpace(act)})
+			}
+			for _, key := range []string{"action_list", "actions", "records"} {
+				if arr, ok := x[key].([]interface{}); ok {
+					for _, it := range arr {
+						walk(it)
+					}
+				}
+			}
+			for _, val := range x {
+				walk(val)
+			}
+		case []interface{}:
+			for _, it := range x {
+				walk(it)
+			}
+		}
+	}
+	var root interface{}
+	if json.Unmarshal(raw, &root) == nil {
+		walk(root)
+	}
+	return out
+}
+
 func HandleLarkWebhook(c *gin.Context) {
 	if !larkWebhookEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "lark webhook disabled"})
@@ -202,13 +240,20 @@ func HandleLarkWebhook(c *gin.Context) {
 	}
 
 	switch eventType {
-	case "drive.file.bitable_record_changed_v1", "bitable.record.changed":
+	case "drive.file.bitable_record_changed_v1", "drive.file.bitable_record_changed_v2",
+		"bitable.record.changed", "base.record.changed":
 		var ev larkBitableEvent
 		if len(env.Event) > 0 {
 			_ = json.Unmarshal(env.Event, &ev)
 		}
 		tableID := ev.TableID
-		for _, act := range ev.ActionList {
+		actions := ev.ActionList
+		if len(actions) == 0 && len(env.Event) > 0 {
+			actions = extractBitableRecordActions(env.Event)
+		}
+		log.Printf("[LARK] webhook bitable event_type=%s table=%s actions=%d\n",
+			eventType, tableID, len(actions))
+		for _, act := range actions {
 			recID := strings.TrimSpace(act.RecordID)
 			action := strings.TrimSpace(act.Action)
 			if recID == "" {

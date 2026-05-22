@@ -79,7 +79,9 @@ func main() {
 		api.PUT("/projects/:id", handlers.UpdateProject)
 		api.PUT("/projects/:id/status", handlers.UpdateProjectStatus)
 		api.GET("/projects/:id/appointments", handlers.GetProjectAppointments)
+		api.POST("/projects/:id/appointments/:type", handlers.CreateProjectAppointment)
 		api.PUT("/projects/:id/appointments/:type", handlers.UpsertProjectAppointment)
+		api.DELETE("/projects/:id/appointments/:apptId", handlers.DeleteProjectAppointment)
 		api.GET("/projects/:id/documents", handlers.GetProjectDocuments)
 
 		api.GET("/companies", handlers.GetCompanies)
@@ -92,6 +94,7 @@ func main() {
 		api.POST("/admin/sync-lark", handlers.SyncAllProjectsToLark)
 		api.GET("/admin/lark-diagnose", handlers.LarkDiagnose)
 		api.POST("/admin/lark-sync-probe", handlers.LarkSyncProbe)
+		api.POST("/admin/lark-pull-inbound", handlers.LarkPullInbound)
 
 		api.POST("/documents", handlers.CreateDocument)
 		api.DELETE("/documents/:id", handlers.DeleteDocument)

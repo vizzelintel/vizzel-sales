@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"regexp"
@@ -342,6 +343,16 @@ func GetProject(c *gin.Context) {
 		return
 	}
 
+	if strings.TrimSpace(p.LarkRecordID) != "" {
+		if pullErr := MaybePullProjectFromLarkOnView(id, p.LarkRecordID); pullErr != nil {
+			log.Printf("[LARK] pull on view project=%s: %v\n", id, pullErr)
+		} else if p2, err2 := scanProject(config.DB.QueryRow(context.Background(),
+			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id,
+		)); err2 == nil {
+			p = p2
+		}
+	}
+
 	c.JSON(http.StatusOK, p)
 }
 
@@ -447,7 +458,7 @@ func UpdateProjectStatus(c *gin.Context) {
 	if req.AppointmentDate != "" {
 		if _, isAppt := appointmentStatusLabel[req.Status]; isAppt {
 			if startAt, err := time.Parse(time.RFC3339, req.AppointmentDate); err == nil {
-				upsertProjectAppointmentRow(context.Background(), id, req.Status, userIDStr, req.PresentType, calendarEventID, startAt, req.AppointmentNote)
+				_ = insertProjectAppointmentRow(context.Background(), id, req.Status, userIDStr, req.PresentType, calendarEventID, startAt, req.AppointmentNote)
 			}
 		}
 	}

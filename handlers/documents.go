@@ -260,7 +260,7 @@ func autoAdvanceStatus(projectID, docType, userID string) {
 	var nextStatus string
 	switch docType {
 	case "quotation_support", "quotation_dealer":
-		if currentStatus == "present" {
+		if currentStatus == "present" || currentStatus == "register" {
 			nextStatus = "quotation"
 		}
 
@@ -403,9 +403,9 @@ func reconcileProjectStatusAfterDocumentDelete(projectID, deletedDocType, userID
 	case quotationSupport > 0:
 		newStatus = "quotation"
 	default:
-		// If downstream doc gates are no longer met, roll back to present.
+		// If downstream doc gates are no longer met, roll back to register.
 		if currentStatus == "quotation" || currentStatus == "tor" || currentStatus == "contract" || currentStatus == "closed" {
-			newStatus = "present"
+			newStatus = "register"
 		}
 	}
 

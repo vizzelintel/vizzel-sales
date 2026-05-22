@@ -167,19 +167,7 @@ func findProjectIDByLarkRecord(recordID string) (string, error) {
 	return id, err
 }
 
-func applyLarkInboundPatch(patch larkInboundPatch, larkRecordID string) error {
-	projectID := strings.TrimSpace(patch.ProjectID)
-	if projectID == "" && larkRecordID != "" {
-		var err error
-		projectID, err = findProjectIDByLarkRecord(larkRecordID)
-		if err != nil {
-			return fmt.Errorf("lookup by lark_record_id: %w", err)
-		}
-	}
-	if projectID == "" {
-		return fmt.Errorf("no project linked (missing Project ID / lark_record_id)")
-	}
-
+func applyLarkInboundPatch(projectID string, patch larkInboundPatch, larkRecordID string) error {
 	markInboundSync(projectID)
 
 	var sets []string
@@ -239,34 +227,111 @@ func applyLarkInboundPatch(patch larkInboundPatch, larkRecordID string) error {
 	return nil
 }
 
-func processLarkBitableRecordChange(tableID, recordID, action string) {
-	action = strings.TrimSpace(action)
-	if action != "record_edited" && action != "record_added" {
-		return
+var larkInboundPullLast sync.Map
+
+func larkPullOnViewEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LARK_PULL_ON_VIEW"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
 	}
+}
+
+func shouldPullFromLarkNow(projectID string) bool {
+	if v, ok := larkInboundPullLast.Load(projectID); ok {
+		if time.Since(v.(time.Time)) < 20*time.Second {
+			return false
+		}
+	}
+	larkInboundPullLast.Store(projectID, time.Now())
+	return true
+}
+
+func isLarkRecordChangeAction(action string) bool {
+	action = strings.TrimSpace(strings.ToLower(action))
+	switch action {
+	case "", "record_edited", "record_added", "record_updated", "record_created", "records_edited":
+		return true
+	default:
+		return strings.Contains(action, "record")
+	}
+}
+
+func larkInboundTableAllowed(tableID string) bool {
 	wantTable := strings.TrimSpace(os.Getenv("LARK_TABLE_ID"))
-	if wantTable != "" && tableID != "" && tableID != wantTable {
-		return
+	return wantTable == "" || tableID == "" || tableID == wantTable
+}
+
+// PullLarkRecordInbound fetches one Bitable row and applies it to the linked project.
+func PullLarkRecordInbound(tableID, recordID string) error {
+	recordID = strings.TrimSpace(recordID)
+	if recordID == "" {
+		return fmt.Errorf("empty record_id")
+	}
+	if !larkInboundTableAllowed(tableID) {
+		return fmt.Errorf("table_id mismatch: %s", tableID)
 	}
 
 	token, err := getLarkAccessToken()
 	if err != nil {
-		log.Printf("[LARK] inbound auth: %v\n", err)
-		return
+		return fmt.Errorf("auth: %w", err)
 	}
 	cfg, err := resolveLarkBitableConfig(token)
 	if err != nil {
-		log.Printf("[LARK] inbound config: %v\n", err)
-		return
+		return fmt.Errorf("config: %w", err)
 	}
 
 	fields, err := getLarkBitableRecord(token, cfg.AppToken, cfg.TableID, recordID)
 	if err != nil {
-		log.Printf("[LARK] inbound fetch record %s: %v\n", recordID, err)
-		return
+		return fmt.Errorf("fetch record: %w", err)
 	}
 	patch := parseLarkFieldsToPatch(fields)
-	if err := applyLarkInboundPatch(patch, recordID); err != nil {
-		log.Printf("[LARK] inbound apply record %s: %v\n", recordID, err)
+	projectID, err := resolveInboundProjectID(patch, recordID)
+	if err != nil {
+		return err
 	}
+	if err := applyLarkInboundPatch(projectID, patch, recordID); err != nil {
+		return err
+	}
+	if err := applyLarkInboundAppointments(projectID, fields); err != nil {
+		return fmt.Errorf("appointments: %w", err)
+	}
+	return nil
+}
+
+func resolveInboundProjectID(patch larkInboundPatch, larkRecordID string) (string, error) {
+	projectID := strings.TrimSpace(patch.ProjectID)
+	if projectID == "" && larkRecordID != "" {
+		var err error
+		projectID, err = findProjectIDByLarkRecord(larkRecordID)
+		if err != nil {
+			return "", fmt.Errorf("lookup by lark_record_id: %w", err)
+		}
+	}
+	if projectID == "" {
+		return "", fmt.Errorf("no project linked (missing Project ID / lark_record_id)")
+	}
+	return projectID, nil
+}
+
+func processLarkBitableRecordChange(tableID, recordID, action string) {
+	if !isLarkRecordChangeAction(action) {
+		log.Printf("[LARK] inbound skip action=%q record=%s\n", action, recordID)
+		return
+	}
+	if err := PullLarkRecordInbound(tableID, recordID); err != nil {
+		log.Printf("[LARK] inbound record %s: %v\n", recordID, err)
+	}
+}
+
+// MaybePullProjectFromLarkOnView refreshes from Lark when opening project detail (debounced).
+func MaybePullProjectFromLarkOnView(projectID, larkRecordID string) error {
+	if !larkPullOnViewEnabled() || strings.TrimSpace(larkRecordID) == "" {
+		return nil
+	}
+	if !shouldPullFromLarkNow(projectID) {
+		return nil
+	}
+	return PullLarkRecordInbound("", larkRecordID)
 }
