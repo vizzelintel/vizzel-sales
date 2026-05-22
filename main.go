@@ -52,6 +52,7 @@ func main() {
 		c.JSON(200, gin.H{"service": "vizzel-backend", "status": "ok"})
 	})
 	r.POST("/api/v1/webhook", handlers.HandleWebhook)
+	r.POST("/api/v1/webhook/lark", handlers.HandleLarkWebhook)
 	r.POST("/api/v1/auth/line", handlers.LineLogin)
 	r.POST("/api/v1/auth/register", handlers.Register)
 	r.GET("/api/v1/auth/validate-invite", handlers.ValidateInviteCode)

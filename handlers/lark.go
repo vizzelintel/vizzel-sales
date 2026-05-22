@@ -255,6 +255,9 @@ func saveLarkRecordID(projectID, recordID string) {
 // SyncProjectToLark upserts a single project record into Lark Bitable.
 // Safe to call in a goroutine; logs errors instead of returning them.
 func SyncProjectToLark(p models.Project) {
+	if shouldSkipLarkPush(p.ID) {
+		return
+	}
 	if err := syncProjectToLarkCore(p); err != nil {
 		log.Printf("[LARK] sync failed project=%s: %v\n", p.ID, err)
 	}

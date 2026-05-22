@@ -70,6 +70,13 @@ Single-environment deployment (production only).
   - If date columns are **Text** instead, set Fly secret `LARK_DATE_FORMAT=text`
 - [ ] Sync runs after: create project, นัดหมาย (present/demo/site survey), แนบ/ลบเอกสาร, เปลี่ยนสถานะ
 - [ ] Admin bulk re-sync: `POST /api/v1/admin/sync-lark`
+- [ ] **Lark → App webhook** (แก้ใน Lark แล้วแอปอัปเดต):
+  - [ ] Fly secret `LARK_EVENT_VERIFY_TOKEN` = token เดียวกับใน Lark Developer Console
+  - [ ] Fly secret `LARK_WEBHOOK_ENABLED=true`
+  - [ ] Lark Events → Request URL `https://vizzel-sales-api.fly.dev/api/v1/webhook/lark`
+  - [ ] Subscribe event `drive.file.bitable_record_changed_v1` (bitable record changed)
+  - [ ] Bitable column `รายละเอียดเพิ่มเติม` (Text) exists
+  - [ ] แก้รายละเอียดใน Lark → เปิดโครงการในแอปใหม่ → ข้อความตรงกัน
 
 ## 6) Frontend URLs
 
