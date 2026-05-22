@@ -431,6 +431,45 @@ func UpdateMemberRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "อัปเดต role สำเร็จ"})
 }
 
+// DeleteCompanyMember removes a user from the company (admin only, not self).
+func DeleteCompanyMember(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+	targetID := c.Param("id")
+
+	var role, companyID string
+	if err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,''), COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&role, &companyID); err != nil || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin เท่านั้น"})
+		return
+	}
+	if uid == targetID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ไม่สามารถลบบัญชีของตัวเองได้"})
+		return
+	}
+
+	var targetCompany string
+	err := config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(company_id::text,'') FROM users WHERE id = $1::uuid`, targetID,
+	).Scan(&targetCompany)
+	if err != nil || targetCompany != companyID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบพนักงานในบริษัทนี้"})
+		return
+	}
+
+	tag, err := config.DB.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, targetID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ลบพนักงานไม่สำเร็จ"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ไม่พบพนักงาน"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ลบพนักงานสำเร็จ"})
+}
+
 func CreateCompany(c *gin.Context) {
 	var req models.CreateCompanyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

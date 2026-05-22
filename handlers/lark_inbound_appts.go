@@ -10,20 +10,6 @@ import (
 	"vizzel-backend/config"
 )
 
-type inboundApptChange struct {
-	clearDate      bool
-	setDate        bool
-	date           time.Time
-	clearNote      bool
-	setNote        bool
-	note           string
-	setPresentType bool
-	presentType    string
-	clearMeetLink  bool
-	setMeetLink    bool
-	meetLink       string
-}
-
 func larkFieldIsEmpty(v interface{}) bool {
 	if v == nil {
 		return true
@@ -74,72 +60,82 @@ func parseLarkBitableDate(v interface{}) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func parseInboundAppointmentFields(fields map[string]interface{}) map[string]inboundApptChange {
-	specs := []struct {
-		typ      string
-		dateCols []string
-		noteCols []string
-	}{
-		{"present", []string{larkColApptPresentDate, "วันนัดพรีเซ็น"}, []string{larkColPresentNote}},
-		{"demo", []string{larkColApptDemoDate, "วันนัด Demo", "วันนัด demo"}, []string{larkColDemoNote}},
-		{"site_survey", []string{larkColApptSurveyDate, "วันนัด Site Survey"}, []string{larkColSurveyNote}},
-	}
-
-	out := map[string]inboundApptChange{}
-	for _, sp := range specs {
-		var ch inboundApptChange
-		if raw, ok := larkFieldByNames(fields, sp.dateCols...); ok {
-			if larkFieldIsEmpty(raw) {
-				ch.clearDate = true
-			} else if t, ok := parseLarkBitableDate(raw); ok {
-				ch.setDate = true
-				ch.date = t
-			} else {
-				ch.clearDate = true
-			}
-		}
-		if raw, ok := larkFieldByNames(fields, sp.noteCols...); ok {
-			if larkFieldIsEmpty(raw) {
-				ch.clearNote = true
-			} else {
-				ch.setNote = true
-				ch.note = larkFieldText(raw)
-			}
-		}
-		if sp.typ == "present" {
-			if raw, ok := fields[larkColPresentType]; ok {
-				pt := strings.TrimSpace(larkFieldText(raw))
-				if pt == "" || pt == "—" {
-					ch.setPresentType = true
-					ch.presentType = ""
-				} else if pt == "online" || pt == "onsite" {
-					ch.setPresentType = true
-					ch.presentType = pt
-				}
-			}
-			if raw, ok := larkFieldByNames(fields, larkColPresentMeetLink, "ลิงก์ Meet", "Meet Link"); ok {
-				if larkFieldIsEmpty(raw) {
-					ch.clearMeetLink = true
-				} else {
-					ch.setMeetLink = true
-					ch.meetLink = strings.TrimSpace(larkFieldText(raw))
-				}
-			}
-		}
-		if ch.clearDate || ch.setDate || ch.clearNote || ch.setNote || ch.setPresentType || ch.clearMeetLink || ch.setMeetLink {
-			out[sp.typ] = ch
-		}
-	}
-	return out
+type larkInboundSlot struct {
+	HasTime     bool
+	ScheduledAt time.Time
+	Note        string
+	PresentType string
+	MeetLink    string
+	touched     bool
 }
 
-// replaceAppointmentsFromLark maps one Lark date column to a single appointment row in the app.
-func replaceAppointmentsFromLark(ctx context.Context, projectID, apptType string, at time.Time, note, presentType, meetLink string) error {
+func parsePresentTypeField(raw interface{}) (string, bool) {
+	if raw == nil {
+		return "", false
+	}
+	pt := strings.TrimSpace(larkFieldText(raw))
+	if pt == "" || pt == "—" {
+		return "", true
+	}
+	if pt == "online" || pt == "onsite" {
+		return pt, true
+	}
+	return "", false
+}
+
+func parseInboundSlot(fields map[string]interface{}, n int, dateCols, meetCols, noteCols, typeCols []string) larkInboundSlot {
+	var slot larkInboundSlot
+	if raw, ok := larkFieldByNames(fields, dateCols...); ok {
+		slot.touched = true
+		if t, ok := parseLarkBitableDate(raw); ok {
+			slot.HasTime = true
+			slot.ScheduledAt = t
+		}
+	}
+	if raw, ok := larkFieldByNames(fields, noteCols...); ok {
+		slot.touched = true
+		if !larkFieldIsEmpty(raw) {
+			slot.Note = larkFieldText(raw)
+		}
+	}
+	if len(meetCols) > 0 {
+		if raw, ok := larkFieldByNames(fields, meetCols...); ok {
+			slot.touched = true
+			if !larkFieldIsEmpty(raw) {
+				slot.MeetLink = strings.TrimSpace(larkFieldText(raw))
+			}
+		}
+	}
+	if len(typeCols) > 0 {
+		if raw, ok := larkFieldByNames(fields, typeCols...); ok {
+			if pt, ok := parsePresentTypeField(raw); ok {
+				slot.touched = true
+				slot.PresentType = pt
+			}
+		}
+	}
+	return slot
+}
+
+func syncAppointmentsFromLarkSlots(ctx context.Context, projectID, apptType string, slots []larkApptSlot) error {
 	if err := deleteAllAppointmentsOfType(ctx, projectID, apptType); err != nil {
 		return err
 	}
-	if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", presentType, "", meetLink, "", at, note); err != nil {
-		return err
+	for _, s := range slots {
+		if !s.HasTime {
+			continue
+		}
+		pt, meet := "", ""
+		if apptType == "present" {
+			pt = s.PresentType
+			meet = s.MeetLink
+		}
+		if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", pt, "", meet, "", s.ScheduledAt, s.Note); err != nil {
+			return err
+		}
+	}
+	if apptType == "present" {
+		syncLatestPresentLegacyColumns(ctx, projectID)
 	}
 	return nil
 }
@@ -163,108 +159,84 @@ func deleteAllAppointmentsOfType(ctx context.Context, projectID, apptType string
 	return err
 }
 
-func deleteProjectAppointment(ctx context.Context, projectID, apptType string) error {
-	if err := deleteAllAppointmentsOfType(ctx, projectID, apptType); err != nil {
-		return err
+func mergeInboundSlots(existing []larkApptSlot, fields map[string]interface{}, apptType string) ([]larkApptSlot, bool) {
+	var anyTouched bool
+	out := make([]larkApptSlot, 0, maxAppointmentsPerType)
+	for n := 1; n <= maxAppointmentsPerType; n++ {
+		var dateCols, meetCols, noteCols, typeCols []string
+		switch apptType {
+		case "present":
+			dateCols = larkPresentDateColsN(n)
+			meetCols = larkPresentMeetColsN(n)
+			noteCols = larkPresentNoteColsN(n)
+			typeCols = larkPresentTypeColsN(n)
+		case "demo":
+			dateCols = larkDemoDateColsN(n)
+			noteCols = larkDemoNoteColsN(n)
+		case "site_survey":
+			dateCols = larkSurveyDateColsN(n)
+			noteCols = larkSurveyNoteColsN(n)
+		default:
+			return nil, false
+		}
+		in := parseInboundSlot(fields, n, dateCols, meetCols, noteCols, typeCols)
+		if in.touched {
+			anyTouched = true
+		}
+		var base larkApptSlot
+		if n <= len(existing) {
+			base = existing[n-1]
+		}
+		if !in.touched {
+			if base.HasTime {
+				out = append(out, base)
+			}
+			continue
+		}
+		if in.HasTime {
+			base.HasTime = true
+			base.ScheduledAt = in.ScheduledAt
+		}
+		if apptType == "present" {
+			if raw, ok := larkFieldByNames(fields, typeCols...); ok {
+				if pt, ok := parsePresentTypeField(raw); ok {
+					base.PresentType = pt
+				}
+			}
+			if raw, ok := larkFieldByNames(fields, meetCols...); ok {
+				if larkFieldIsEmpty(raw) {
+					base.MeetLink = ""
+				} else {
+					base.MeetLink = strings.TrimSpace(larkFieldText(raw))
+				}
+			}
+		}
+		if raw, ok := larkFieldByNames(fields, noteCols...); ok {
+			if larkFieldIsEmpty(raw) {
+				base.Note = ""
+			} else {
+				base.Note = larkFieldText(raw)
+			}
+		}
+		if base.HasTime {
+			out = append(out, base)
+		}
 	}
-	log.Printf("[LARK] inbound cleared appt project=%s type=%s\n", projectID, apptType)
-	return nil
+	return out, anyTouched
 }
 
 func applyLarkInboundAppointments(projectID string, fields map[string]interface{}) error {
-	changes := parseInboundAppointmentFields(fields)
-	if len(changes) == 0 {
-		return nil
-	}
 	ctx := context.Background()
-
-	for apptType, ch := range changes {
-		if ch.clearDate {
-			if err := deleteProjectAppointment(ctx, projectID, apptType); err != nil {
-				return fmt.Errorf("clear %s: %w", apptType, err)
-			}
+	existingAll := loadLarkAppointmentsByType(projectID)
+	for _, apptType := range []string{"present", "demo", "site_survey"} {
+		slots, touched := mergeInboundSlots(existingAll[apptType], fields, apptType)
+		if !touched {
 			continue
 		}
-
-		if ch.setDate {
-			note := ""
-			if ch.setNote {
-				note = ch.note
-			}
-			pt := ""
-			meet := ""
-			if apptType == "present" {
-				if ch.setPresentType {
-					pt = ch.presentType
-				}
-				if ch.setMeetLink {
-					meet = ch.meetLink
-				}
-			}
-			if err := replaceAppointmentsFromLark(ctx, projectID, apptType, ch.date, note, pt, meet); err != nil {
-				return fmt.Errorf("replace %s: %w", apptType, err)
-			}
-			log.Printf("[LARK] inbound appt set project=%s type=%s\n", projectID, apptType)
-			continue
+		if err := syncAppointmentsFromLarkSlots(ctx, projectID, apptType, slots); err != nil {
+			return fmt.Errorf("%s: %w", apptType, err)
 		}
-
-		if ch.clearNote || ch.setNote {
-			note := ""
-			if ch.setNote {
-				note = ch.note
-			}
-			tag, err := config.DB.Exec(ctx,
-				`UPDATE project_appointments SET note = $1, updated_at = NOW()
-				 WHERE project_id = $2::uuid AND appt_type = $3`,
-				note, projectID, apptType,
-			)
-			if err != nil {
-				return fmt.Errorf("note %s: %w", apptType, err)
-			}
-			if tag.RowsAffected() == 0 {
-				continue
-			}
-			if apptType == "present" {
-				_, _ = config.DB.Exec(ctx,
-					`UPDATE projects SET appointment_note = $1, last_activity_at = NOW() WHERE id = $2::uuid`,
-					note, projectID,
-				)
-			}
-			log.Printf("[LARK] inbound appt note project=%s type=%s\n", projectID, apptType)
-		} else if ch.setPresentType && apptType == "present" {
-			_, _ = config.DB.Exec(ctx,
-				`UPDATE project_appointments SET present_type = NULLIF($1,''), updated_at = NOW()
-				 WHERE project_id = $2::uuid AND appt_type = 'present'`,
-				ch.presentType, projectID,
-			)
-			_, _ = config.DB.Exec(ctx,
-				`UPDATE projects SET present_type = NULLIF($1,''), last_activity_at = NOW() WHERE id = $2::uuid`,
-				ch.presentType, projectID,
-			)
-		}
-
-		if apptType == "present" && (ch.setMeetLink || ch.clearMeetLink) {
-			meet := ""
-			if ch.setMeetLink {
-				meet = ch.meetLink
-			}
-			tag, err := config.DB.Exec(ctx,
-				`UPDATE project_appointments SET meet_link = NULLIF($1,''), updated_at = NOW()
-				 WHERE project_id = $2::uuid AND appt_type = 'present'
-				   AND id = (
-				     SELECT id FROM project_appointments
-				     WHERE project_id = $2::uuid AND appt_type = 'present'
-				     ORDER BY scheduled_at DESC LIMIT 1
-				   )`,
-				meet, projectID,
-			)
-			if err != nil {
-				return fmt.Errorf("meet_link present: %w", err)
-			}
-			if tag.RowsAffected() > 0 {
-				log.Printf("[LARK] inbound meet_link project=%s\n", projectID)
-			}
-		}
+		log.Printf("[LARK] inbound appt slots project=%s type=%s count=%d\n", projectID, apptType, len(slots))
 	}
 	return nil
 }

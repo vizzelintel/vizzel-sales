@@ -175,34 +175,80 @@ func loadLarkDocuments(projectID string) []larkDocRow {
 	return list
 }
 
+func setLarkSlotFields(fields map[string]interface{}, n int, slot larkApptSlot, apptType string) {
+	clear := func(cols ...string) {
+		for _, c := range cols {
+			fields[c] = ""
+		}
+	}
+	switch apptType {
+	case "present":
+		if slot.HasTime {
+			fields[larkColPresentDateN(n)] = larkDateFieldValue(slot.ScheduledAt)
+			fields[larkColPresentNoteN(n)] = strings.TrimSpace(slot.Note)
+			fields[larkColPresentMeetN(n)] = strings.TrimSpace(slot.MeetLink)
+			if slot.PresentType != "" {
+				fields[larkColPresentTypeN(n)] = slot.PresentType
+			} else {
+				fields[larkColPresentTypeN(n)] = ""
+			}
+		} else {
+			clear(larkColPresentDateN(n), larkColPresentNoteN(n), larkColPresentMeetN(n), larkColPresentTypeN(n))
+		}
+		if n == 1 {
+			if slot.HasTime {
+				fields[larkColApptPresentDate] = larkDateFieldValue(slot.ScheduledAt)
+				fields[larkColPresentNote] = strings.TrimSpace(slot.Note)
+				fields[larkColPresentMeetLink] = strings.TrimSpace(slot.MeetLink)
+				if slot.PresentType != "" {
+					fields[larkColPresentType] = slot.PresentType
+				}
+			} else {
+				clear(larkColApptPresentDate, larkColPresentNote, larkColPresentMeetLink, larkColPresentType)
+			}
+		}
+	case "demo":
+		if slot.HasTime {
+			fields[larkColDemoDateN(n)] = larkDateFieldValue(slot.ScheduledAt)
+			fields[larkColDemoNoteN(n)] = strings.TrimSpace(slot.Note)
+		} else {
+			clear(larkColDemoDateN(n), larkColDemoNoteN(n))
+		}
+		if n == 1 && slot.HasTime {
+			fields[larkColApptDemoDate] = larkDateFieldValue(slot.ScheduledAt)
+			fields[larkColDemoNote] = strings.TrimSpace(slot.Note)
+		} else if n == 1 {
+			clear(larkColApptDemoDate, larkColDemoNote)
+		}
+	case "site_survey":
+		if slot.HasTime {
+			fields[larkColSurveyDateN(n)] = larkDateFieldValue(slot.ScheduledAt)
+			fields[larkColSurveyNoteN(n)] = strings.TrimSpace(slot.Note)
+		} else {
+			clear(larkColSurveyDateN(n), larkColSurveyNoteN(n))
+		}
+		if n == 1 && slot.HasTime {
+			fields[larkColApptSurveyDate] = larkDateFieldValue(slot.ScheduledAt)
+			fields[larkColSurveyNote] = strings.TrimSpace(slot.Note)
+		} else if n == 1 {
+			clear(larkColApptSurveyDate, larkColSurveyNote)
+		}
+	}
+}
+
 func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 	appts := loadLarkAppointmentsByType(projectID)
 	fields := map[string]interface{}{}
 
-	setDate := func(col string, slot larkApptSlot) {
-		if slot.HasTime {
-			fields[col] = larkDateFieldValue(slot.ScheduledAt)
+	for _, typ := range []string{"present", "demo", "site_survey"} {
+		slots := appts[typ]
+		for n := 1; n <= maxAppointmentsPerType; n++ {
+			var slot larkApptSlot
+			if n <= len(slots) {
+				slot = slots[n-1]
+			}
+			setLarkSlotFields(fields, n, slot, typ)
 		}
-	}
-	setNote := func(col, note string) {
-		fields[col] = strings.TrimSpace(note)
-	}
-
-	if s, ok := latestLarkApptSlot(appts["present"]); ok {
-		setDate(larkColApptPresentDate, s)
-		if s.PresentType != "" {
-			fields[larkColPresentType] = s.PresentType
-		}
-		setNote(larkColPresentNote, s.Note)
-		fields[larkColPresentMeetLink] = strings.TrimSpace(s.MeetLink)
-	}
-	if s, ok := latestLarkApptSlot(appts["demo"]); ok {
-		setDate(larkColApptDemoDate, s)
-		setNote(larkColDemoNote, s.Note)
-	}
-	if s, ok := latestLarkApptSlot(appts["site_survey"]); ok {
-		setDate(larkColApptSurveyDate, s)
-		setNote(larkColSurveyNote, s.Note)
 	}
 
 	var summaryLines []string
@@ -217,23 +263,15 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 			if !s.HasTime {
 				continue
 			}
-			tag := ""
-			if i == len(slots)-1 {
-				tag = " [ล่าสุด → ใช้คอลัมน์วันที่ด้านบน]"
-			}
-			line := fmt.Sprintf("%s #%d%s: %s", label, i+1, tag, formatLarkDisplayTime(s.ScheduledAt))
+			line := fmt.Sprintf("%s #%d (คอลัมน์ %d): %s", label, i+1, i+1, formatLarkDisplayTime(s.ScheduledAt))
 			if typ == "present" && s.PresentType != "" {
 				line += " (" + s.PresentType + ")"
 			}
 			if strings.TrimSpace(s.Note) != "" {
 				line += " — " + strings.TrimSpace(s.Note)
 			}
-			if typ == "present" && s.PresentType == "online" {
-				if ml := strings.TrimSpace(s.MeetLink); ml != "" {
-					line += "\n   Meet: " + ml
-				} else {
-					line += "\n   Meet: (ยังไม่มีลิงก์)"
-				}
+			if typ == "present" && strings.TrimSpace(s.MeetLink) != "" {
+				line += "\n   Meet: " + strings.TrimSpace(s.MeetLink)
 			}
 			summaryLines = append(summaryLines, line)
 		}
@@ -241,18 +279,18 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 			summaryLines = append(summaryLines, fmt.Sprintf("  (%s รวม %d/%d ครั้ง)", label, len(slots), maxAppointmentsPerType))
 		}
 	}
-	header := fmt.Sprintf("รายการนัดจากแอป (สูงสุด %d ครั้ง/ประเภท) — อย่าแก้มือ\n", maxAppointmentsPerType)
+	header := fmt.Sprintf("สรุปจากแอป (อ่านอย่างเดียว) — แก้นัดที่คอลัมน์ 1–%d\n", maxAppointmentsPerType)
 	fields[larkColApptSummary] = header + strings.Join(summaryLines, "\n")
 	return fields
 }
 
 func buildLarkApptGuideField() map[string]interface{} {
 	text := strings.Join([]string{
-		"【Support — นัดหมาย】",
-		"• วันพรีเซ็น / วัน Demo / วัน Site Survey = นัด「ล่าสุด」ของประเภทนั้น (แก้วันที่ใน Lark ได้)",
-		"• ลิงก์ Google Meet = Meet ของนัด Present ล่าสุด (online) — วางลิงก์ที่นี่ → sync เข้าแอป",
-		"• สรุปนัดหมาย = ประวัติครบทุกครั้งจากแอป — อ่านอย่างเดียว อย่าแก้",
-		"• เพิ่มนัดครั้งที่ 2–10: ให้ Dealer กดในแอป (นัดหมายพรีเซ็น/Demo/Site Survey)",
+		"【Support — นัดหมาย 1–10】",
+		"• ครั้งที่ 1–10: ใช้คอลัมน์ วันพรีเซ็น N + Meet พรีเซ็น N + หมายเหตุ/รูปแบบ N",
+		"• ครั้งที่ N ในแอป = คอลัมน์ชุดที่ N ใน Lark (เรียงตามวันที่ในแอป)",
+		"• สรุปนัดหมาย = อ่านอย่างเดียว อย่าแก้",
+		"• ลบนัด: ล้างวันที่ในคอลัมน์นั้น แล้วบันทึก",
 	}, "\n")
 	return map[string]interface{}{larkColApptGuide: text}
 }
@@ -352,7 +390,7 @@ func SyncProjectToLarkByID(projectID string) {
 
 // RecommendedLarkColumns lists Bitable columns for full appointment/document sync.
 func RecommendedLarkColumns() []string {
-	return []string{
+	cols := []string{
 		"ชื่อหน่วยงาน", "ประเภทหน่วยงาน", "จังหวัด", "ผู้ติดต่อ", "โทรศัพท์",
 		"บริษัท Dealer", "สถานะ", larkDetailNoteColumnName(), "Project ID", "วันที่สร้าง",
 		larkColApptPresentDate, larkColPresentType, larkColPresentNote, larkColPresentMeetLink,
@@ -360,4 +398,5 @@ func RecommendedLarkColumns() []string {
 		larkColApptSurveyDate, larkColSurveyNote,
 		larkColApptSummary, larkColApptGuide, larkColDocuments,
 	}
+	return append(cols, RecommendedLarkAppointmentSlotColumns()...)
 }

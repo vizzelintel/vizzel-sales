@@ -42,15 +42,13 @@ func TestParseLarkFieldsToPatch(t *testing.T) {
 	}
 }
 
-func TestParseInboundAppointmentFieldsClearDemo(t *testing.T) {
+func TestParseInboundSlotPresentMeet(t *testing.T) {
 	fields := map[string]interface{}{
-		larkColApptDemoDate: nil,
-		larkColDemoNote:     "",
+		larkColPresentMeetN(2): "https://meet.google.com/abc-defg-hij",
 	}
-	ch := parseInboundAppointmentFields(fields)
-	d, ok := ch["demo"]
-	if !ok || !d.clearDate || !d.clearNote {
-		t.Fatalf("got %+v", ch)
+	slot := parseInboundSlot(fields, 2, larkPresentDateColsN(2), larkPresentMeetColsN(2), larkPresentNoteColsN(2), larkPresentTypeColsN(2))
+	if !slot.touched || slot.MeetLink != "https://meet.google.com/abc-defg-hij" {
+		t.Fatalf("got %+v", slot)
 	}
 }
 
