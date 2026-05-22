@@ -16,6 +16,7 @@ const (
 	larkColApptPresentDate  = "วันพรีเซ็น"
 	larkColPresentType      = "รูปแบบ Present"
 	larkColPresentNote      = "หมายเหตุ Present"
+	larkColPresentMeetLink  = "ลิงก์ Google Meet"
 	larkColApptDemoDate     = "วัน Demo"
 	larkColDemoNote         = "หมายเหตุ Demo"
 	larkColApptSurveyDate   = "วัน Site Survey"
@@ -52,6 +53,7 @@ type larkApptSlot struct {
 	ScheduledAt time.Time
 	Note        string
 	PresentType string
+	MeetLink    string
 	HasTime     bool
 }
 
@@ -109,7 +111,7 @@ func larkDateFieldValue(t time.Time) interface{} {
 func loadLarkAppointmentsByType(projectID string) map[string][]larkApptSlot {
 	out := map[string][]larkApptSlot{}
 	rows, err := config.DB.Query(context.Background(),
-		`SELECT appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,'')
+		`SELECT appt_type, scheduled_at::text, COALESCE(note,''), COALESCE(present_type,''), COALESCE(meet_link,'')
 		 FROM project_appointments WHERE project_id = $1::uuid
 		 ORDER BY appt_type, scheduled_at ASC`,
 		projectID,
@@ -117,10 +119,10 @@ func loadLarkAppointmentsByType(projectID string) map[string][]larkApptSlot {
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
-			var typ, at, note, pt string
-			if rows.Scan(&typ, &at, &note, &pt) == nil {
+			var typ, at, note, pt, meet string
+			if rows.Scan(&typ, &at, &note, &pt, &meet) == nil {
 				if t, ok := parseLarkTimestamp(at); ok {
-					out[typ] = append(out[typ], larkApptSlot{ScheduledAt: t, Note: note, PresentType: pt, HasTime: true})
+					out[typ] = append(out[typ], larkApptSlot{ScheduledAt: t, Note: note, PresentType: pt, MeetLink: meet, HasTime: true})
 				}
 			}
 		}
@@ -191,6 +193,9 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 			fields[larkColPresentType] = s.PresentType
 		}
 		setNote(larkColPresentNote, s.Note)
+		if strings.TrimSpace(s.MeetLink) != "" {
+			fields[larkColPresentMeetLink] = strings.TrimSpace(s.MeetLink)
+		}
 	}
 	if s, ok := latestLarkApptSlot(appts["demo"]); ok {
 		setDate(larkColApptDemoDate, s)
@@ -322,7 +327,7 @@ func RecommendedLarkColumns() []string {
 	return []string{
 		"ชื่อหน่วยงาน", "ประเภทหน่วยงาน", "จังหวัด", "ผู้ติดต่อ", "โทรศัพท์",
 		"บริษัท Dealer", "สถานะ", larkDetailNoteColumnName(), "Project ID", "วันที่สร้าง",
-		larkColApptPresentDate, larkColPresentType, larkColPresentNote,
+		larkColApptPresentDate, larkColPresentType, larkColPresentNote, larkColPresentMeetLink,
 		larkColApptDemoDate, larkColDemoNote,
 		larkColApptSurveyDate, larkColSurveyNote,
 		larkColApptSummary, larkColDocuments,

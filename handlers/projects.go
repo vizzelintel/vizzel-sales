@@ -194,7 +194,21 @@ func CreateProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, project)
-	go SyncProjectToLark(project)
+	go func(p models.Project) {
+		SyncProjectToLark(p)
+		companyName := ""
+		if p.CompanyID != "" {
+			_ = config.DB.QueryRow(context.Background(),
+				`SELECT COALESCE(name,'') FROM companies WHERE id = $1::uuid`, p.CompanyID,
+			).Scan(&companyName)
+		}
+		if refreshed, err := scanProject(config.DB.QueryRow(context.Background(),
+			`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, p.ID,
+		)); err == nil {
+			p = refreshed
+		}
+		NotifyNewProjectLark(p, companyName)
+	}(project)
 }
 
 func normalizeProjectsScope(scope string) string {
@@ -415,7 +429,7 @@ func UpdateProjectStatus(c *gin.Context) {
 			calendarMessage = "รูปแบบวันเวลานัดหมายไม่ถูกต้อง"
 		} else {
 			calendarEventID, calendarOK, calendarMessage, calendarMailOK = scheduleAppointmentNotifications(
-				c, id, statusLabel, agencyName, contactPerson, contactPhone, req.AppointmentNote, startAt,
+				c, id, statusLabel, agencyName, contactPerson, contactPhone, req.AppointmentNote, startAt, "",
 			)
 			if !calendarOK && !calendarMailOK && calendarMessage == "" {
 				calendarMessage = "ไม่สามารถบันทึกปฏิทินได้"

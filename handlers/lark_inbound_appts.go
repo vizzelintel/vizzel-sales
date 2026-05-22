@@ -11,14 +11,17 @@ import (
 )
 
 type inboundApptChange struct {
-	clearDate bool
-	setDate   bool
-	date      time.Time
-	clearNote bool
-	setNote   bool
-	note      string
+	clearDate      bool
+	setDate        bool
+	date           time.Time
+	clearNote      bool
+	setNote        bool
+	note           string
 	setPresentType bool
 	presentType    string
+	clearMeetLink  bool
+	setMeetLink    bool
+	meetLink       string
 }
 
 func larkFieldIsEmpty(v interface{}) bool {
@@ -114,8 +117,16 @@ func parseInboundAppointmentFields(fields map[string]interface{}) map[string]inb
 					ch.presentType = pt
 				}
 			}
+			if raw, ok := larkFieldByNames(fields, larkColPresentMeetLink, "ลิงก์ Meet", "Meet Link"); ok {
+				if larkFieldIsEmpty(raw) {
+					ch.clearMeetLink = true
+				} else {
+					ch.setMeetLink = true
+					ch.meetLink = strings.TrimSpace(larkFieldText(raw))
+				}
+			}
 		}
-		if ch.clearDate || ch.setDate || ch.clearNote || ch.setNote || ch.setPresentType {
+		if ch.clearDate || ch.setDate || ch.clearNote || ch.setNote || ch.setPresentType || ch.clearMeetLink || ch.setMeetLink {
 			out[sp.typ] = ch
 		}
 	}
@@ -123,11 +134,11 @@ func parseInboundAppointmentFields(fields map[string]interface{}) map[string]inb
 }
 
 // replaceAppointmentsFromLark maps one Lark date column to a single appointment row in the app.
-func replaceAppointmentsFromLark(ctx context.Context, projectID, apptType string, at time.Time, note, presentType string) error {
+func replaceAppointmentsFromLark(ctx context.Context, projectID, apptType string, at time.Time, note, presentType, meetLink string) error {
 	if err := deleteAllAppointmentsOfType(ctx, projectID, apptType); err != nil {
 		return err
 	}
-	if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", presentType, "", "", "", at, note); err != nil {
+	if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", presentType, "", meetLink, "", at, note); err != nil {
 		return err
 	}
 	return nil
@@ -181,10 +192,16 @@ func applyLarkInboundAppointments(projectID string, fields map[string]interface{
 				note = ch.note
 			}
 			pt := ""
-			if apptType == "present" && ch.setPresentType {
-				pt = ch.presentType
+			meet := ""
+			if apptType == "present" {
+				if ch.setPresentType {
+					pt = ch.presentType
+				}
+				if ch.setMeetLink {
+					meet = ch.meetLink
+				}
 			}
-			if err := replaceAppointmentsFromLark(ctx, projectID, apptType, ch.date, note, pt); err != nil {
+			if err := replaceAppointmentsFromLark(ctx, projectID, apptType, ch.date, note, pt, meet); err != nil {
 				return fmt.Errorf("replace %s: %w", apptType, err)
 			}
 			log.Printf("[LARK] inbound appt set project=%s type=%s\n", projectID, apptType)
@@ -224,6 +241,29 @@ func applyLarkInboundAppointments(projectID string, fields map[string]interface{
 				`UPDATE projects SET present_type = NULLIF($1,''), last_activity_at = NOW() WHERE id = $2::uuid`,
 				ch.presentType, projectID,
 			)
+		}
+
+		if apptType == "present" && (ch.setMeetLink || ch.clearMeetLink) {
+			meet := ""
+			if ch.setMeetLink {
+				meet = ch.meetLink
+			}
+			tag, err := config.DB.Exec(ctx,
+				`UPDATE project_appointments SET meet_link = NULLIF($1,''), updated_at = NOW()
+				 WHERE project_id = $2::uuid AND appt_type = 'present'
+				   AND id = (
+				     SELECT id FROM project_appointments
+				     WHERE project_id = $2::uuid AND appt_type = 'present'
+				     ORDER BY scheduled_at DESC LIMIT 1
+				   )`,
+				meet, projectID,
+			)
+			if err != nil {
+				return fmt.Errorf("meet_link present: %w", err)
+			}
+			if tag.RowsAffected() > 0 {
+				log.Printf("[LARK] inbound meet_link project=%s\n", projectID)
+			}
 		}
 	}
 	return nil

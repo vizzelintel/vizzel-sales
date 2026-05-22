@@ -178,7 +178,7 @@ func CreateProjectAppointment(c *gin.Context) {
 
 	calNote := appointmentCalendarNote(strings.TrimSpace(req.Note), meetSetup, meetLink)
 	calendarEventID, calendarOK, calendarMessage, calendarMailOK := scheduleAppointmentNotifications(
-		c, projectID, label, agencyName, contactPerson, contactPhone, calNote, startAt,
+		c, projectID, label, agencyName, contactPerson, contactPhone, calNote, startAt, meetLink,
 	)
 
 	var apptID string
@@ -354,62 +354,47 @@ func syncLatestPresentLegacyColumns(ctx context.Context, projectID string) {
 	)
 }
 
-// scheduleAppointmentNotifications tries Google Calendar then SMTP .ics invite.
+// scheduleAppointmentNotifications tries Google Calendar then SMTP .ics to all verified users.
 func scheduleAppointmentNotifications(
 	c *gin.Context,
 	projectID, statusLabel, agencyName, contactPerson, contactPhone, note string,
 	startAt time.Time,
+	meetLink string,
 ) (calendarEventID string, calendarOK bool, calendarMessage string, calendarMailOK bool) {
+	if !notificationsEnabled() {
+		return "", false, "", false
+	}
 	desc := calendarDescription(contactPerson, contactPhone, note)
 	title := "[Vizzel] " + statusLabel + " - " + agencyName
 	dt := startAt.UTC().Format(time.RFC3339)
+	emails := loadNotifyEmails(context.Background())
 
-	if evID, err := CreateCalendarEvent(title, desc, dt, attendeeEmails(c)); err == nil {
-		calendarEventID = evID
-		calendarOK = true
-		calendarMessage = "บันทึกนัดหมายใน Google Calendar แล้ว"
-	} else if !isGoogleCalendarSkipped(err) {
-		calendarMessage = "ไม่สามารถบันทึก Google Calendar ได้: " + err.Error()
+	if len(emails) > 0 {
+		if evID, err := CreateCalendarEvent(title, desc, dt, emails); err == nil {
+			calendarEventID = evID
+			calendarOK = true
+			calendarMessage = "บันทึกนัดหมายใน Google Calendar แล้ว"
+		} else if !isGoogleCalendarSkipped(err) {
+			calendarMessage = "ไม่สามารถบันทึก Google Calendar ได้: " + err.Error()
+		}
 	}
 
-	var userEmail string
-	lineID, _ := c.Get("line_id")
-	if lineIDStr, _ := lineID.(string); lineIDStr != "" {
-		_ = config.DB.QueryRow(context.Background(),
-			`SELECT COALESCE(email,'') FROM users WHERE line_id = $1`, lineIDStr,
-		).Scan(&userEmail)
-	}
-	if userEmail == "" {
+	if len(emails) == 0 {
 		if calendarMessage == "" {
-			calendarMessage = "ไม่พบอีเมลผู้ใช้งานสำหรับส่งคำเชิญปฏิทิน"
+			calendarMessage = "ไม่พบอีเมลผู้ใช้ที่ยืนยันแล้วสำหรับส่งคำเชิญปฏิทิน"
 		}
 		return calendarEventID, calendarOK, calendarMessage, false
 	}
-	if err := SendCalendarInviteEmail(userEmail, agencyName, statusLabel, note, startAt, projectID); err == nil {
+	sent, err := sendCalendarInviteToAll(emails, agencyName, statusLabel, note, startAt, projectID, meetLink)
+	if sent > 0 {
 		calendarMailOK = true
 		if calendarMessage == "" {
-			calendarMessage = "ส่งคำเชิญปฏิทินทางอีเมลแล้ว"
+			calendarMessage = fmt.Sprintf("ส่งคำเชิญปฏิทิน (.ics) ทางอีเมลแล้ว %d คน", sent)
 		}
-	} else if calendarMessage == "" {
+	} else if calendarMessage == "" && err != nil {
 		calendarMessage = "ส่งคำเชิญปฏิทินทางอีเมลไม่สำเร็จ: " + err.Error()
 	}
 	return calendarEventID, calendarOK, calendarMessage, calendarMailOK
-}
-
-func attendeeEmails(c *gin.Context) []string {
-	lineID, _ := c.Get("line_id")
-	lineIDStr, _ := lineID.(string)
-	if lineIDStr == "" {
-		return nil
-	}
-	var userEmail string
-	_ = config.DB.QueryRow(context.Background(),
-		`SELECT COALESCE(email,'') FROM users WHERE line_id = $1`, lineIDStr,
-	).Scan(&userEmail)
-	if userEmail == "" {
-		return nil
-	}
-	return []string{userEmail}
 }
 
 func isGoogleCalendarSkipped(err error) bool {

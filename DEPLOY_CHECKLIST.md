@@ -67,6 +67,7 @@ Single-environment deployment (production only).
 - [ ] Bitable table includes appointment + document columns (see `GET /api/v1/admin/lark-diagnose` → `recommended_columns`):
   - Dates (type **Date**): `วันพรีเซ็น`, `วัน Demo`, `วัน Site Survey`
   - Text: `รูปแบบ Present`, `หมายเหตุ Present`, `หมายเหตุ Demo`, `หมายเหตุ Site Survey`, `สรุปนัดหมาย`, `เอกสาร`
+  - URL: `ลิงก์ Google Meet` (Support วางลิงก์ → webhook inbound → แอปแสดงปุ่ม Meet)
   - If date columns are **Text** instead, set Fly secret `LARK_DATE_FORMAT=text`
 - [ ] Sync runs after: create project, นัดหมาย (present/demo/site survey), แนบ/ลบเอกสาร, เปลี่ยนสถานะ
 - [ ] Admin bulk re-sync: `POST /api/v1/admin/sync-lark`
@@ -78,6 +79,14 @@ Single-environment deployment (production only).
   - [ ] Bitable column `รายละเอียดเพิ่มเติม` (Text) exists
   - [ ] แก้รายละเอียดใน Lark → **ปิดแล้วเปิดโครงการในแอปอีกครั้ง** → ข้อความตรงกัน (แอปดึงจาก Lark อัตโนมัติทุก ~20 วินาทีต่อโครงการ)
   - [ ] ถ้า webhook ไม่มา: ดู Fly log ว่ามี `[LARK] webhook bitable` หรือไม่; ใช้ `POST /admin/lark-pull-inbound?project_id=...` (admin) ทดสอบดึงทันที
+
+## 5b) Notifications
+
+- [ ] Fly: `NOTIFY_ENABLED=true`
+- [ ] Fly: `LARK_NOTIFY_CHAT_ID` = กลุ่ม Lark ที่มีสมาชิก Base + บอทแอป (scope `im:message`)
+- [ ] Fly: `LARK_NOTIFY_ENABLED=true` (optional `NOTIFY_EXTRA_EMAILS` สำหรับอีเมลนอกแอป)
+- [ ] SMTP secrets ครบ (ส่ง .ics ตอนนัดหมาย → ผู้ใช้ที่ยืนยันอีเมลในแอปแล้ว)
+- [ ] สร้างโครงการใหม่ → ข้อความในกลุ่ม Lark; สร้างนัดหมาย → อีเมลแนบ invite.ics
 
 ## 6) Frontend URLs
 
