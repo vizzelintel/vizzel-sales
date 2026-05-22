@@ -22,6 +22,7 @@ const (
 	larkColApptSurveyDate   = "วัน Site Survey"
 	larkColSurveyNote       = "หมายเหตุ Site Survey"
 	larkColApptSummary      = "สรุปนัดหมาย"
+	larkColApptGuide        = "วิธีใช้ (Support)"
 	larkColDocuments        = "เอกสาร"
 	larkColDetailNote       = "รายละเอียดเพิ่มเติม"
 )
@@ -193,9 +194,7 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 			fields[larkColPresentType] = s.PresentType
 		}
 		setNote(larkColPresentNote, s.Note)
-		if strings.TrimSpace(s.MeetLink) != "" {
-			fields[larkColPresentMeetLink] = strings.TrimSpace(s.MeetLink)
-		}
+		fields[larkColPresentMeetLink] = strings.TrimSpace(s.MeetLink)
 	}
 	if s, ok := latestLarkApptSlot(appts["demo"]); ok {
 		setDate(larkColApptDemoDate, s)
@@ -218,18 +217,44 @@ func buildLarkAppointmentFields(projectID string) map[string]interface{} {
 			if !s.HasTime {
 				continue
 			}
-			line := fmt.Sprintf("%s #%d: %s", label, i+1, formatLarkDisplayTime(s.ScheduledAt))
+			tag := ""
+			if i == len(slots)-1 {
+				tag = " [ล่าสุด → ใช้คอลัมน์วันที่ด้านบน]"
+			}
+			line := fmt.Sprintf("%s #%d%s: %s", label, i+1, tag, formatLarkDisplayTime(s.ScheduledAt))
 			if typ == "present" && s.PresentType != "" {
 				line += " (" + s.PresentType + ")"
 			}
 			if strings.TrimSpace(s.Note) != "" {
 				line += " — " + strings.TrimSpace(s.Note)
 			}
+			if typ == "present" && s.PresentType == "online" {
+				if ml := strings.TrimSpace(s.MeetLink); ml != "" {
+					line += "\n   Meet: " + ml
+				} else {
+					line += "\n   Meet: (ยังไม่มีลิงก์)"
+				}
+			}
 			summaryLines = append(summaryLines, line)
 		}
+		if len(slots) > 0 {
+			summaryLines = append(summaryLines, fmt.Sprintf("  (%s รวม %d/%d ครั้ง)", label, len(slots), maxAppointmentsPerType))
+		}
 	}
-	fields[larkColApptSummary] = strings.Join(summaryLines, "\n")
+	header := fmt.Sprintf("รายการนัดจากแอป (สูงสุด %d ครั้ง/ประเภท) — อย่าแก้มือ\n", maxAppointmentsPerType)
+	fields[larkColApptSummary] = header + strings.Join(summaryLines, "\n")
 	return fields
+}
+
+func buildLarkApptGuideField() map[string]interface{} {
+	text := strings.Join([]string{
+		"【Support — นัดหมาย】",
+		"• วันพรีเซ็น / วัน Demo / วัน Site Survey = นัด「ล่าสุด」ของประเภทนั้น (แก้วันที่ใน Lark ได้)",
+		"• ลิงก์ Google Meet = Meet ของนัด Present ล่าสุด (online) — วางลิงก์ที่นี่ → sync เข้าแอป",
+		"• สรุปนัดหมาย = ประวัติครบทุกครั้งจากแอป — อ่านอย่างเดียว อย่าแก้",
+		"• เพิ่มนัดครั้งที่ 2–10: ให้ Dealer กดในแอป (นัดหมายพรีเซ็น/Demo/Site Survey)",
+	}, "\n")
+	return map[string]interface{}{larkColApptGuide: text}
 }
 
 func buildLarkDetailNoteField(detailNote string) map[string]interface{} {
@@ -250,6 +275,9 @@ func buildLarkExtras(projectID, detailNote string) map[string]interface{} {
 		extras[k] = v
 	}
 	for k, v := range buildLarkAppointmentFields(projectID) {
+		extras[k] = v
+	}
+	for k, v := range buildLarkApptGuideField() {
 		extras[k] = v
 	}
 	for k, v := range buildLarkDocumentFields(projectID) {
@@ -330,6 +358,6 @@ func RecommendedLarkColumns() []string {
 		larkColApptPresentDate, larkColPresentType, larkColPresentNote, larkColPresentMeetLink,
 		larkColApptDemoDate, larkColDemoNote,
 		larkColApptSurveyDate, larkColSurveyNote,
-		larkColApptSummary, larkColDocuments,
+		larkColApptSummary, larkColApptGuide, larkColDocuments,
 	}
 }

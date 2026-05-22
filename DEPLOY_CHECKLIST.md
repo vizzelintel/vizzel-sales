@@ -68,6 +68,7 @@ Single-environment deployment (production only).
   - Dates (type **Date**): `วันพรีเซ็น`, `วัน Demo`, `วัน Site Survey`
   - Text: `รูปแบบ Present`, `หมายเหตุ Present`, `หมายเหตุ Demo`, `หมายเหตุ Site Survey`, `สรุปนัดหมาย`, `เอกสาร`
   - URL: `ลิงก์ Google Meet` (Support วางลิงก์ → webhook inbound → แอปแสดงปุ่ม Meet)
+  - Long text (read-only จากแอป): `สรุปนัดหมาย` (รายการสูงสุด 10/ประเภท), `วิธีใช้ (Support)`
   - If date columns are **Text** instead, set Fly secret `LARK_DATE_FORMAT=text`
 - [ ] Sync runs after: create project, นัดหมาย (present/demo/site survey), แนบ/ลบเอกสาร, เปลี่ยนสถานะ
 - [ ] Admin bulk re-sync: `POST /api/v1/admin/sync-lark`
