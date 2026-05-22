@@ -77,6 +77,10 @@ func scanProject(row interface{ Scan(...any) error }) (models.Project, error) {
 	if p.Status == "registrator" {
 		p.Status = "register"
 	}
+	// Present is no longer a pipeline stage; treat legacy rows as register in API responses.
+	if p.Status == "present" {
+		p.Status = "register"
+	}
 	return p, err
 }
 
@@ -281,7 +285,11 @@ func GetProjects(c *gin.Context) {
 			var st string
 			var n int
 			if countRows.Scan(&st, &n) == nil {
-				statusCounts[st] = n
+				if st == "present" {
+					statusCounts["register"] += n
+				} else {
+					statusCounts[st] = n
+				}
 			}
 		}
 	}

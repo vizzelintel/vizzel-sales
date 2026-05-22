@@ -231,10 +231,10 @@ var larkInboundPullLast sync.Map
 
 func larkPullOnViewEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("LARK_PULL_ON_VIEW"))) {
-	case "0", "false", "no", "off":
-		return false
-	default:
+	case "1", "true", "yes", "on":
 		return true
+	default:
+		return false
 	}
 }
 

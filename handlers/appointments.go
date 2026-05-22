@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -33,14 +32,6 @@ type projectAppointment struct {
 
 func GetProjectAppointments(c *gin.Context) {
 	projectID := c.Param("id")
-
-	var larkRecordID string
-	_ = config.DB.QueryRow(context.Background(),
-		`SELECT COALESCE(lark_record_id,'') FROM projects WHERE id = $1::uuid`, projectID,
-	).Scan(&larkRecordID)
-	if pullErr := MaybePullProjectFromLarkOnView(projectID, larkRecordID); pullErr != nil {
-		log.Printf("[LARK] pull on appointments project=%s: %v\n", projectID, pullErr)
-	}
 
 	list, err := listProjectAppointments(context.Background(), projectID)
 	if err != nil {

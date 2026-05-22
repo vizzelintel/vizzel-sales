@@ -122,8 +122,19 @@ func parseInboundAppointmentFields(fields map[string]interface{}) map[string]inb
 	return out
 }
 
-func deleteProjectAppointment(ctx context.Context, projectID, apptType string) error {
-	tag, err := config.DB.Exec(ctx,
+// replaceAppointmentsFromLark maps one Lark date column to a single appointment row in the app.
+func replaceAppointmentsFromLark(ctx context.Context, projectID, apptType string, at time.Time, note, presentType string) error {
+	if err := deleteAllAppointmentsOfType(ctx, projectID, apptType); err != nil {
+		return err
+	}
+	if err := insertProjectAppointmentRow(ctx, projectID, apptType, "", presentType, "", at, note); err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteAllAppointmentsOfType(ctx context.Context, projectID, apptType string) error {
+	_, err := config.DB.Exec(ctx,
 		`DELETE FROM project_appointments WHERE project_id = $1::uuid AND appt_type = $2`,
 		projectID, apptType,
 	)
@@ -138,10 +149,15 @@ func deleteProjectAppointment(ctx context.Context, projectID, apptType string) e
 			 WHERE id = $1::uuid`, projectID,
 		)
 	}
-	if tag.RowsAffected() > 0 || apptType == "present" {
-		log.Printf("[LARK] inbound cleared appt project=%s type=%s\n", projectID, apptType)
-	}
 	return err
+}
+
+func deleteProjectAppointment(ctx context.Context, projectID, apptType string) error {
+	if err := deleteAllAppointmentsOfType(ctx, projectID, apptType); err != nil {
+		return err
+	}
+	log.Printf("[LARK] inbound cleared appt project=%s type=%s\n", projectID, apptType)
+	return nil
 }
 
 func applyLarkInboundAppointments(projectID string, fields map[string]interface{}) error {
@@ -163,32 +179,13 @@ func applyLarkInboundAppointments(projectID string, fields map[string]interface{
 			note := ""
 			if ch.setNote {
 				note = ch.note
-			} else {
-				_ = config.DB.QueryRow(ctx,
-					`SELECT COALESCE(note,'') FROM project_appointments WHERE project_id = $1::uuid AND appt_type = $2`,
-					projectID, apptType,
-				).Scan(&note)
 			}
 			pt := ""
-			if apptType == "present" {
-				if ch.setPresentType {
-					pt = ch.presentType
-				} else {
-					_ = config.DB.QueryRow(ctx,
-						`SELECT COALESCE(present_type,'') FROM project_appointments WHERE project_id = $1::uuid AND appt_type = 'present'`,
-						projectID,
-					).Scan(&pt)
-				}
-				_ = insertProjectAppointmentRow(ctx, projectID, apptType, "", pt, "", ch.date, note)
-				_, _ = config.DB.Exec(ctx,
-					`UPDATE projects
-					 SET appointment_date = $1, appointment_note = $2, present_type = NULLIF($3,''),
-					     last_activity_at = NOW()
-					 WHERE id = $4::uuid`,
-					ch.date, note, pt, projectID,
-				)
-			} else {
-				_ = insertProjectAppointmentRow(ctx, projectID, apptType, "", "", "", ch.date, note)
+			if apptType == "present" && ch.setPresentType {
+				pt = ch.presentType
+			}
+			if err := replaceAppointmentsFromLark(ctx, projectID, apptType, ch.date, note, pt); err != nil {
+				return fmt.Errorf("replace %s: %w", apptType, err)
 			}
 			log.Printf("[LARK] inbound appt set project=%s type=%s\n", projectID, apptType)
 			continue
