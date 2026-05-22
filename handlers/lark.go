@@ -279,7 +279,7 @@ func syncProjectToLarkCore(p models.Project) error {
 	}
 
 	baseFields := buildLarkFields(p, companyName)
-	fullFields, baseOnly := mergeLarkExtraFields(p.ID, baseFields, p.DetailNote)
+	extras := buildLarkExtras(p.ID, p.DetailNote)
 	recordID := strings.TrimSpace(p.LarkRecordID)
 	if recordID == "" {
 		recordID = loadLarkRecordID(p.ID)
@@ -292,41 +292,39 @@ func syncProjectToLarkCore(p models.Project) error {
 	}
 
 	if recordID == "" {
-		recordID, err = upsertLarkFields(tenantToken, cfg.AppToken, cfg.TableID, "", fullFields, baseOnly, true)
+		fullFields := larkMergeFields(baseFields, extras)
+		recordID, err = createLarkRecord(tenantToken, cfg.AppToken, cfg.TableID, fullFields)
+		if err != nil && isLarkUnknownFieldErr(err) {
+			log.Printf("[LARK] create with extras failed, retrying base: %v\n", err)
+			recordID, err = createLarkRecord(tenantToken, cfg.AppToken, cfg.TableID, baseFields)
+		}
 		if err != nil {
 			return fmt.Errorf("create: %w", err)
 		}
 		saveLarkRecordID(p.ID, recordID)
+		syncLarkFieldsGradual(tenantToken, cfg.AppToken, cfg.TableID, recordID, extras)
 		log.Printf("[LARK] created: %s record_id=%s\n", p.AgencyName, recordID)
 		return nil
 	}
-	if _, err = upsertLarkFields(tenantToken, cfg.AppToken, cfg.TableID, recordID, fullFields, baseOnly, false); err != nil {
-		return fmt.Errorf("update: %w", err)
+
+	if err := updateLarkRecord(tenantToken, cfg.AppToken, cfg.TableID, recordID, baseFields); err != nil {
+		return fmt.Errorf("update base: %w", err)
 	}
+	syncLarkFieldsGradual(tenantToken, cfg.AppToken, cfg.TableID, recordID, extras)
 	saveLarkRecordID(p.ID, recordID)
 	log.Printf("[LARK] updated: %s → %s\n", p.AgencyName, p.Status)
 	return nil
 }
 
-// upsertLarkFields tries full fields first; on unknown-field errors retries with base columns only.
-func upsertLarkFields(token, appToken, tableID, recordID string, full, base map[string]interface{}, create bool) (string, error) {
-	if create {
-		rid, err := createLarkRecord(token, appToken, tableID, full)
-		if err == nil || !isLarkUnknownFieldErr(err) {
-			return rid, err
-		}
-		log.Printf("[LARK] create with extras failed, retrying base fields: %v\n", err)
-		return createLarkRecord(token, appToken, tableID, base)
+func larkMergeFields(base, extras map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(base)+len(extras))
+	for k, v := range base {
+		out[k] = v
 	}
-	upErr := updateLarkRecord(token, appToken, tableID, recordID, full)
-	if upErr == nil {
-		return recordID, nil
+	for k, v := range extras {
+		out[k] = v
 	}
-	if !isLarkUnknownFieldErr(upErr) {
-		return recordID, upErr
-	}
-	log.Printf("[LARK] update with extras failed, retrying base fields: %v\n", upErr)
-	return recordID, updateLarkRecord(token, appToken, tableID, recordID, base)
+	return out
 }
 
 // SyncAllProjectsToLark is a gin handler (admin only) that bulk-syncs all

@@ -25,6 +25,13 @@ const (
 	larkColDetailNote       = "รายละเอียดเพิ่มเติม"
 )
 
+func larkDetailNoteColumnName() string {
+	if c := strings.TrimSpace(os.Getenv("LARK_COL_DETAIL_NOTE")); c != "" {
+		return c
+	}
+	return larkColDetailNote
+}
+
 var larkDocLabels = map[string]string{
 	"quotation_support": "ใบเสนอราคา (Support)",
 	"quotation_dealer":  "ใบเสนอราคา (Dealer)",
@@ -212,7 +219,43 @@ func buildLarkDetailNoteField(detailNote string) map[string]interface{} {
 	if note == "" {
 		note = "—"
 	}
-	return map[string]interface{}{larkColDetailNote: note}
+	return map[string]interface{}{larkDetailNoteColumnName(): note}
+}
+
+// buildLarkExtras returns optional Bitable columns (appointments, documents, detail note).
+func buildLarkExtras(projectID, detailNote string) map[string]interface{} {
+	if !larkExtrasEnabled() {
+		return nil
+	}
+	extras := make(map[string]interface{})
+	for k, v := range buildLarkDetailNoteField(detailNote) {
+		extras[k] = v
+	}
+	for k, v := range buildLarkAppointmentFields(projectID) {
+		extras[k] = v
+	}
+	for k, v := range buildLarkDocumentFields(projectID) {
+		extras[k] = v
+	}
+	return extras
+}
+
+// syncLarkFieldsGradual updates one column at a time so a missing column does not block others.
+func syncLarkFieldsGradual(token, appToken, tableID, recordID string, fields map[string]interface{}) {
+	if recordID == "" || len(fields) == 0 {
+		return
+	}
+	for col, val := range fields {
+		err := updateLarkRecord(token, appToken, tableID, recordID, map[string]interface{}{col: val})
+		if err == nil {
+			continue
+		}
+		if isLarkUnknownFieldErr(err) {
+			log.Printf("[LARK] column %q not in Bitable, skipped\n", col)
+			continue
+		}
+		log.Printf("[LARK] sync column %q failed: %v\n", col, err)
+	}
 }
 
 func buildLarkDocumentFields(projectID string) map[string]interface{} {
@@ -234,27 +277,6 @@ func buildLarkDocumentFields(projectID string) map[string]interface{} {
 		text = "—"
 	}
 	return map[string]interface{}{larkColDocuments: text}
-}
-
-func mergeLarkExtraFields(projectID string, base map[string]interface{}, detailNote string) (full, baseOnly map[string]interface{}) {
-	baseOnly = base
-	if !larkExtrasEnabled() {
-		return baseOnly, baseOnly
-	}
-	full = make(map[string]interface{}, len(base)+16)
-	for k, v := range base {
-		full[k] = v
-	}
-	for k, v := range buildLarkDetailNoteField(detailNote) {
-		full[k] = v
-	}
-	for k, v := range buildLarkAppointmentFields(projectID) {
-		full[k] = v
-	}
-	for k, v := range buildLarkDocumentFields(projectID) {
-		full[k] = v
-	}
-	return full, baseOnly
 }
 
 func isLarkUnknownFieldErr(err error) bool {
@@ -286,7 +308,7 @@ func SyncProjectToLarkByID(projectID string) {
 func RecommendedLarkColumns() []string {
 	return []string{
 		"ชื่อหน่วยงาน", "ประเภทหน่วยงาน", "จังหวัด", "ผู้ติดต่อ", "โทรศัพท์",
-		"บริษัท Dealer", "สถานะ", "รายละเอียดเพิ่มเติม", "Project ID", "วันที่สร้าง",
+		"บริษัท Dealer", "สถานะ", larkDetailNoteColumnName(), "Project ID", "วันที่สร้าง",
 		larkColApptPresentDate, larkColPresentType, larkColPresentNote,
 		larkColApptDemoDate, larkColDemoNote,
 		larkColApptSurveyDate, larkColSurveyNote,
