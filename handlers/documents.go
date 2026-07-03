@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"vizzel-backend/config"
+	"vizzel-backend/internal/storage"
 	"vizzel-backend/models"
 )
 
@@ -141,11 +142,12 @@ func CreateDocument(c *gin.Context) {
 	}
 
 	storageKey := storageObjectKey(projectID, header.Filename)
-	fileURL, err := uploadToStorage(storageKey, mimeType, file)
+	storedKey, err := docStore.Upload(storageKey, mimeType, file)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "upload failed: " + err.Error()})
 		return
 	}
+	fileURL := storedKey
 
 	ctx := context.Background()
 	tx, err := config.DB.Begin(ctx)
@@ -212,6 +214,8 @@ func CreateDocument(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit document"})
 		return
 	}
+
+	doc.FileURL = documentDownloadURL(doc.ID)
 
 	// Any upload is activity: reset 90-day timer for non-terminal statuses.
 	_, _ = config.DB.Exec(context.Background(),
@@ -354,8 +358,8 @@ func DeleteDocument(c *gin.Context) {
 		return
 	}
 
-	// Delete from Supabase Storage (best-effort — DB deletion proceeds regardless)
-	deleteFromStorage(fileURL)
+	// Delete stored file (local or legacy Supabase URL)
+	deleteStoredFile(fileURL)
 
 	tag, err := config.DB.Exec(ctx, `DELETE FROM documents WHERE id = $1::uuid`, docID)
 	if err != nil {
@@ -470,10 +474,8 @@ func projectDocCounts(ctx context.Context, projectID string) map[string]int {
 	return counts
 }
 
-// deleteFromStorage removes a file from Supabase Storage.
-// The public URL format is: {BASE}/storage/v1/object/public/{bucket}/{file}
-// The delete URL format is: {BASE}/storage/v1/object/{bucket}/{file}
-func deleteFromStorage(fileURL string) {
+// deleteLegacySupabaseObject removes a file from Supabase Storage (pre-migration URLs).
+func deleteLegacySupabaseObject(fileURL string) {
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	serviceKey := os.Getenv("SUPABASE_SERVICE_KEY")
 	if supabaseURL == "" || serviceKey == "" || fileURL == "" {
@@ -519,7 +521,96 @@ func GetProjectDocuments(c *gin.Context) {
 		docs = append(docs, d)
 	}
 
+	for i := range docs {
+		if !storage.IsLegacyRemoteURL(docs[i].FileURL) {
+			docs[i].FileURL = documentDownloadURL(docs[i].ID)
+		}
+	}
+
 	c.JSON(http.StatusOK, docs)
+}
+
+// DownloadDocument streams a document after JWT + project permission checks.
+func DownloadDocument(c *gin.Context) {
+	docID := c.Param("id")
+	ctx := context.Background()
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	var projectID, fileURL, fileName, mimeType string
+	err := config.DB.QueryRow(ctx, `
+		SELECT d.project_id::text, d.file_url, COALESCE(d.file_name,''), COALESCE(d.mime_type,'')
+		FROM documents d
+		WHERE d.id = $1::uuid`, docID,
+	).Scan(&projectID, &fileURL, &fileName, &mimeType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch document"})
+		}
+		return
+	}
+
+	if !userCanAccessProject(ctx, userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์เข้าถึงเอกสารนี้"})
+		return
+	}
+
+	if storage.IsLegacyRemoteURL(fileURL) {
+		c.Redirect(http.StatusTemporaryRedirect, fileURL)
+		return
+	}
+
+	rc, err := docStore.Open(fileURL)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	defer rc.Close()
+
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	if fileName == "" {
+		fileName = "document"
+	}
+	c.Header("Content-Type", mimeType)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, rc)
+}
+
+func userCanAccessProject(ctx context.Context, userID, projectID string) bool {
+	var callerRole, callerCompanyID, projectCompanyID string
+	if err := config.DB.QueryRow(ctx,
+		`SELECT COALESCE(role,''), COALESCE(company_id::text,'')
+		 FROM users WHERE id = $1::uuid`, userID,
+	).Scan(&callerRole, &callerCompanyID); err != nil {
+		return false
+	}
+	if callerRole == "admin" || callerRole == "support" {
+		return true
+	}
+	if err := config.DB.QueryRow(ctx,
+		`SELECT COALESCE(company_id::text,'') FROM projects WHERE id = $1::uuid`, projectID,
+	).Scan(&projectCompanyID); err != nil {
+		return false
+	}
+	if callerCompanyID != "" && callerCompanyID == projectCompanyID {
+		return true
+	}
+	return false
+}
+
+func deleteStoredFile(fileURL string) {
+	if storage.IsLegacyRemoteURL(fileURL) {
+		deleteLegacySupabaseObject(fileURL)
+		return
+	}
+	if docStore != nil {
+		_ = docStore.Delete(fileURL)
+	}
 }
 
 // storageObjectKey builds a safe ASCII path (Supabase rejects Thai/spaces in object keys).
@@ -533,54 +624,11 @@ func storageObjectKey(projectID, originalFilename string) string {
 	return projectID + "/" + hex.EncodeToString(b) + ext
 }
 
+// encodeStoragePath is kept for legacy Supabase delete URLs.
 func encodeStoragePath(key string) string {
 	parts := strings.Split(key, "/")
 	for i, p := range parts {
 		parts[i] = url.PathEscape(p)
 	}
 	return strings.Join(parts, "/")
-}
-
-// uploadToStorage uploads a file to Supabase Storage bucket "project-docs"
-// and returns the public URL.
-// Upload endpoint: POST {SUPABASE_URL}/storage/v1/object/project-docs/{path}
-// Authorization:   Bearer {SUPABASE_SERVICE_KEY}
-func uploadToStorage(storageKey, contentType string, r io.Reader) (string, error) {
-	supabaseURL := os.Getenv("SUPABASE_URL")
-	serviceKey := os.Getenv("SUPABASE_SERVICE_KEY")
-
-	// Report each missing var by name to make misconfiguration obvious in logs.
-	var missing []string
-	if supabaseURL == "" {
-		missing = append(missing, "SUPABASE_URL")
-	}
-	if serviceKey == "" {
-		missing = append(missing, "SUPABASE_SERVICE_KEY")
-	}
-	if len(missing) > 0 {
-		return "", fmt.Errorf("env vars not set: %s", strings.Join(missing, ", "))
-	}
-
-	uploadURL := fmt.Sprintf("%s/storage/v1/object/project-docs/%s", supabaseURL, encodeStoragePath(storageKey))
-
-	req, err := http.NewRequest(http.MethodPost, uploadURL, r)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+serviceKey)
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("x-upsert", "true")
-
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("storage %d: %s", resp.StatusCode, body)
-	}
-
-	return fmt.Sprintf("%s/storage/v1/object/public/project-docs/%s", supabaseURL, encodeStoragePath(storageKey)), nil
 }

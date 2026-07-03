@@ -2,11 +2,11 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"vizzel-backend/config"
 )
 
 func JWTAuth() gin.HandlerFunc {
@@ -18,7 +18,11 @@ func JWTAuth() gin.HandlerFunc {
 		}
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		secret := []byte(os.Getenv("LINE_CHANNEL_SECRET"))
+		secret := []byte(config.JWTSecret())
+		if len(secret) == 0 {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server misconfigured"})
+			return
+		}
 
 		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {

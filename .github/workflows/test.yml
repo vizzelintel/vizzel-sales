@@ -2,16 +2,34 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/self-host-postgres]
   pull_request:
     branches: [main]
 
 jobs:
   go-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vizzel
+          POSTGRES_PASSWORD: vizzel
+          POSTGRES_DB: vizzel_sales_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vizzel -d vizzel_sales_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.21"
+      - name: Apply fresh schema
+        env:
+          DATABASE_URL: postgres://vizzel:vizzel@localhost:5432/vizzel_sales_test?sslmode=disable
+        run: MIGRATE_MODE=fresh bash scripts/migrate.sh
       - run: go test ./...

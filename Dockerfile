@@ -6,7 +6,7 @@ COPY . .
 RUN go build -ldflags="-w -s" -o main .
 
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata wget
 WORKDIR /root/
 COPY --from=builder /app/main .
 EXPOSE 8080

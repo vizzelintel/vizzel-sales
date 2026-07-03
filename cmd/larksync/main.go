@@ -1,4 +1,4 @@
-// One-off CLI: go run ./cmd/larksync (requires SUPABASE_DB_URL + LARK_* env).
+// One-off CLI: go run ./cmd/larksync (requires DATABASE_URL + LARK_* env).
 package main
 
 import (

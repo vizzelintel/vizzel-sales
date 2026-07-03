@@ -48,7 +48,11 @@ func issueJWT(userID, lineID, displayName, role string) (string, error) {
 		"exp":  time.Now().Add(7 * 24 * time.Hour).Unix(),
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return t.SignedString([]byte(os.Getenv("LINE_CHANNEL_SECRET")))
+	secret := config.JWTSecret()
+	if secret == "" {
+		return "", fmt.Errorf("JWT_SECRET is not set")
+	}
+	return t.SignedString([]byte(secret))
 }
 
 func LineLogin(c *gin.Context) {

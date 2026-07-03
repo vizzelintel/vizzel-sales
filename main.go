@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -18,6 +20,7 @@ func main() {
 	}
 
 	config.InitDB()
+	handlers.InitDocumentStorage()
 
 	var r *gin.Engine
 	if os.Getenv("GIN_MODE") == "release" {
@@ -29,17 +32,14 @@ func main() {
 	}
 	r.MaxMultipartMemory = 8 << 20 // 8 MB max for file uploads
 
-	allowedOrigins := map[string]bool{
-		"https://vizzelintel.github.io": true,
-	}
+	allowedOrigins := config.AllowedCORSOrigins()
 	r.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		if allowedOrigins[origin] {
+		if origin != "" && allowedOrigins[origin] {
 			c.Header("Access-Control-Allow-Origin", origin)
-		} else {
-			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Vary", "Origin")
 		}
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(204)
@@ -48,9 +48,7 @@ func main() {
 		c.Next()
 	})
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"service": "vizzel-backend", "status": "ok"})
-	})
+	r.GET("/health", healthHandler)
 	r.POST("/api/v1/webhook", handlers.HandleWebhook)
 	r.POST("/api/v1/webhook/lark", handlers.HandleLarkWebhook)
 	r.POST("/api/v1/auth/line", handlers.LineLogin)
@@ -64,7 +62,7 @@ func main() {
 		api.POST("/auth/email/verify-otp", handlers.VerifyEmailOTP)
 		api.Use(middleware.EmailVerifiedGuard())
 
-		api.GET("/users/me", handlers.GetMe) // legacy path kept
+		api.GET("/users/me", handlers.GetMe)
 		api.GET("/me", handlers.GetMe)
 		api.PUT("/me", handlers.UpdateMe)
 
@@ -101,10 +99,10 @@ func main() {
 		api.POST("/admin/lark-pull-inbound", handlers.LarkPullInbound)
 
 		api.POST("/documents", handlers.CreateDocument)
+		api.GET("/documents/:id/download", handlers.DownloadDocument)
 		api.DELETE("/documents/:id", handlers.DeleteDocument)
 	}
 
-	// Auto-reject projects with no activity for 90 days
 	go handlers.StartAutoRejectCron()
 
 	port := os.Getenv("PORT")
@@ -113,4 +111,27 @@ func main() {
 	}
 	log.Printf("vizzel-backend listening on :%s", port)
 	r.Run(":" + port)
+}
+
+func healthHandler(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+
+	dbStatus := "ok"
+	if err := config.PingDB(ctx); err != nil {
+		dbStatus = "error"
+	}
+
+	status := "ok"
+	code := http.StatusOK
+	if dbStatus != "ok" {
+		status = "degraded"
+		code = http.StatusServiceUnavailable
+	}
+
+	c.JSON(code, gin.H{
+		"service": "vizzel-backend",
+		"status":  status,
+		"db":      dbStatus,
+	})
 }
