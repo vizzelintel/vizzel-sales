@@ -17,7 +17,7 @@ Branches for DevOps to verify against [vizzel_sales_selfhost_todo.md](SELF_HOST.
 - [ ] CORS whitelist: staging-sale, sale, github.io (transition)
 - [ ] `/health` returns DB status
 - [ ] `deploy/docker-compose.{prod,staging}.yml`
-- [ ] `deploy/nginx/sale-api.conf`, `staging-sale-api.conf`
+- [ ] `deploy/nginx/sale-api.conf`, `staging-sale-api.conf`, `sale.conf`, `staging-sale.conf`
 - [ ] `deploy/.env.production.example`
 - [ ] CI: `.github/workflows/test.yml`, `deploy-staging.yml`, `deploy-prod.yml`
 - [ ] `fly.toml` moved to `docs/legacy/fly.toml`
