@@ -1,4 +1,5 @@
 # Staging stack — separate DB/volumes from production.
+name: vizzel_sales_staging
 
 services:
   sales-postgres:
@@ -52,11 +53,15 @@ services:
 networks:
   sales_staging_internal:
     name: vizzel_sales_staging_internal
-    driver: bridge
+    external: true
   proxy_net:
     external: true
     name: smartassettracking_app_network
 
 volumes:
   sales_staging_pg_data:
+    name: deploy_sales_staging_pg_data
+    external: true
   sales_staging_docs:
+    name: deploy_sales_staging_docs
+    external: true
