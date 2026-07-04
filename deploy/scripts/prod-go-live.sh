@@ -27,7 +27,7 @@ merge_env_key() {
 }
 
 log "=== Sync prod env keys from staging ==="
-for k in LARK_WIKI_NODE_TOKEN LARK_PULL_ON_VIEW LARK_COL_DETAIL_NOTE; do
+for k in LARK_WIKI_NODE_TOKEN LARK_PULL_ON_VIEW LARK_COL_DETAIL_NOTE LARK_BASE_APP_TOKEN; do
   merge_env_key "$k" "$STAGING_ENV" "$PROD_APP"
 done
 chmod 600 "$PROD_APP"

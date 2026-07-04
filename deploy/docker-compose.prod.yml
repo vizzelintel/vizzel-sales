@@ -1,6 +1,6 @@
 # Production stack — deploy from repo (see DEPLOY_CHECKLIST.md).
-# Run on server: docker compose -f deploy/docker-compose.prod.yml up -d
-name: vizzel_sales_prod
+# Project name: docker compose -p vizzel_sales_prod (or -p deploy on legacy server)
+# Run: deploy/scripts/prod-safe-up.sh
 
 services:
   sales-postgres:
@@ -67,7 +67,7 @@ services:
 networks:
   sales_internal:
     name: vizzel_sales_internal
-    driver: bridge
+    external: true
   proxy_net:
     external: true
     name: smartassettracking_app_network
