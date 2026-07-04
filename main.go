@@ -49,6 +49,7 @@ func main() {
 	})
 
 	r.GET("/health", healthHandler)
+	r.HEAD("/health", healthHandler)
 	r.POST("/api/v1/webhook", handlers.HandleWebhook)
 	r.POST("/api/v1/webhook/lark", handlers.HandleLarkWebhook)
 	r.POST("/api/v1/auth/line", handlers.LineLogin)
@@ -127,6 +128,11 @@ func healthHandler(c *gin.Context) {
 	if dbStatus != "ok" {
 		status = "degraded"
 		code = http.StatusServiceUnavailable
+	}
+
+	if c.Request.Method == http.MethodHead {
+		c.Status(code)
+		return
 	}
 
 	c.JSON(code, gin.H{

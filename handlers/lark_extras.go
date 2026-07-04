@@ -373,6 +373,17 @@ func isLarkUnknownFieldErr(err error) bool {
 		strings.Contains(msg, "1254044")
 }
 
+// isLarkFieldConvErr — extras often send "" to date/text columns Lark rejects on create.
+func isLarkFieldConvErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "FieldConvFail") ||
+		strings.Contains(msg, "1254064") ||
+		strings.Contains(msg, "1254060")
+}
+
 // SyncProjectToLarkByID reloads the project and syncs to Lark (safe for goroutines).
 func SyncProjectToLarkByID(projectID string) {
 	if strings.TrimSpace(projectID) == "" {
