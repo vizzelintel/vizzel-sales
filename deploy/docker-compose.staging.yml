@@ -1,0 +1,67 @@
+# Staging stack — separate DB/volumes from production.
+name: vizzel_sales_staging
+
+services:
+  sales-postgres:
+    image: postgres:16-alpine
+    container_name: sales-postgres-staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-vizzel_sales_staging}
+    volumes:
+      - sales_staging_pg_data:/var/lib/postgresql/data
+    networks:
+      - sales_staging_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-vizzel_sales_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sales-api-staging:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: vizzel-sales-api:staging
+    container_name: sales-api-staging
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sales-postgres:5432/${POSTGRES_DB:-vizzel_sales_staging}?sslmode=disable
+      FILE_STORAGE_DRIVER: local
+      FILE_STORAGE_PATH: /data/docs
+      PORT: "8080"
+      GIN_MODE: release
+      CORS_ORIGINS: https://staging-sale.vizzeltrack.com
+    volumes:
+      - sales_staging_docs:/data/docs
+    depends_on:
+      sales-postgres:
+        condition: service_healthy
+    networks:
+      - sales_staging_internal
+      - proxy_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health | grep -q '\"status\":\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  sales_staging_internal:
+    name: vizzel_sales_staging_internal
+    external: true
+  proxy_net:
+    external: true
+    name: smartassettracking_app_network
+
+volumes:
+  sales_staging_pg_data:
+    name: deploy_sales_staging_pg_data
+    external: true
+  sales_staging_docs:
+    name: deploy_sales_staging_docs
+    external: true

@@ -29,11 +29,7 @@ type verifyEmailOTPRequest struct {
 }
 
 func otpSecret() string {
-	s := os.Getenv("EMAIL_OTP_SECRET")
-	if strings.TrimSpace(s) == "" {
-		s = os.Getenv("LINE_CHANNEL_SECRET")
-	}
-	return s
+	return config.EmailOTPSecret()
 }
 
 func hashOTP(email, otp string) string {

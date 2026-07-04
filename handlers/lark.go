@@ -297,7 +297,7 @@ func syncProjectToLarkCore(p models.Project) error {
 	if recordID == "" {
 		fullFields := larkMergeFields(baseFields, extras)
 		recordID, err = createLarkRecord(tenantToken, cfg.AppToken, cfg.TableID, fullFields)
-		if err != nil && isLarkUnknownFieldErr(err) {
+		if err != nil && (isLarkUnknownFieldErr(err) || isLarkFieldConvErr(err)) {
 			log.Printf("[LARK] create with extras failed, retrying base: %v\n", err)
 			recordID, err = createLarkRecord(tenantToken, cfg.AppToken, cfg.TableID, baseFields)
 		}

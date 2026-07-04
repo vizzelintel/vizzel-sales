@@ -251,7 +251,7 @@ func shouldPullFromLarkNow(projectID string) bool {
 func isLarkRecordChangeAction(action string) bool {
 	action = strings.TrimSpace(strings.ToLower(action))
 	switch action {
-	case "", "record_edited", "record_added", "record_updated", "record_created", "records_edited":
+	case "", "record_edited", "record_added", "record_updated", "record_created", "records_edited", "update":
 		return true
 	default:
 		return strings.Contains(action, "record")

@@ -1,0 +1,39 @@
+name: deploy-staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SSH key
+        env:
+          DEPLOY_KEY: ${{ secrets.SALES_DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SALES_STAGING_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Sync repo and rebuild staging stack
+        env:
+          DEPLOY_HOST: ${{ secrets.SALES_STAGING_HOST }}
+          DEPLOY_USER: ${{ secrets.SALES_DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd /opt/vizzel-sales-staging
+          git fetch origin
+          git checkout feat/self-host-postgres || git checkout main
+          git pull --ff-only origin "$(git branch --show-current)"
+          bash scripts/migrate.sh
+          docker compose -f deploy/docker-compose.staging.yml up -d --build
+          docker compose -f deploy/docker-compose.staging.yml ps
+          REMOTE

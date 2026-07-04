@@ -2,6 +2,11 @@
 .env
 .env.local
 .env.*.local
+deploy/.env
+deploy/.env.staging
+deploy/.env.prod
+deploy/.env.production
+deploy/.env.supabase
 
 # Build output
 vizzel-backend
@@ -22,3 +27,6 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local file storage
+data/

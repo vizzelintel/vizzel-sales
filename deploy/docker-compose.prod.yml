@@ -1,0 +1,79 @@
+# Production stack — deploy from repo (see DEPLOY_CHECKLIST.md).
+# Project name: docker compose -p vizzel_sales_prod (or -p deploy on legacy server)
+# Run: deploy/scripts/prod-safe-up.sh
+
+services:
+  sales-postgres:
+    image: postgres:16-alpine
+    container_name: sales-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-vizzel_sales}
+    volumes:
+      - sales_pg_data:/var/lib/postgresql/data
+    networks:
+      - sales_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-vizzel_sales}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  sales-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: vizzel-sales-api:prod
+    container_name: sales-api
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sales-postgres:5432/${POSTGRES_DB:-vizzel_sales}?sslmode=disable
+      FILE_STORAGE_DRIVER: local
+      FILE_STORAGE_PATH: /data/docs
+      PORT: "8080"
+      GIN_MODE: release
+    volumes:
+      - sales_docs:/data/docs
+    depends_on:
+      sales-postgres:
+        condition: service_healthy
+    networks:
+      - sales_internal
+      - proxy_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health | grep -q '\"status\":\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  sales_internal:
+    name: vizzel_sales_internal
+    external: true
+  proxy_net:
+    external: true
+    name: smartassettracking_app_network
+
+volumes:
+  sales_pg_data:
+    name: vizzel_sales_prod_pg_data
+  sales_docs:
+    name: vizzel_sales_prod_docs
