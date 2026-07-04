@@ -63,7 +63,7 @@ else
 fi
 
 echo "=== 3/4 pg_dump from Supabase ==="
-docker run --rm -e PGCONNECT_TIMEOUT=15 postgres:16-alpine \
+docker run --rm -e PGCONNECT_TIMEOUT=15 postgres:17-alpine \
   pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner \
   > "$DUMP"
 echo "Dump: $DUMP ($(du -h "$DUMP" | cut -f1))"
