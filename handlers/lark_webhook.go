@@ -196,6 +196,7 @@ func HandleLarkWebhook(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot read body"})
 		return
 	}
+	log.Printf("[LARK] webhook POST bytes=%d ua=%q\n", len(body), c.Request.UserAgent())
 
 	env, err := parseLarkWebhookBody(body)
 	if err != nil {

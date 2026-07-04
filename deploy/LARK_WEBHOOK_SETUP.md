@@ -1,48 +1,53 @@
-# Lark Webhook — Staging & Prod
+# Lark CRM — Staging & Prod
 
-Webhook handler พร้อมบน server (`LARK_WEBHOOK_ENABLED=true`).
+CRM อยู่ใน **Lark Wiki (JP tenant)** ไม่ใช่ `/base/` บน www.larksuite.com
 
-## Staging — ตั้งใน Lark Developer Console (VS-016)
+- **เปิด CRM:** `https://ijp5bgs5n9x2.jp.larksuite.com/wiki/Es4NwqP2OimAqZkUADOjVuSip4c?table=tblhmbd8fUOB5GGv`
+- **Wiki node token:** `Es4NwqP2OimAqZkUADOjVuSip4c` → `LARK_WIKI_NODE_TOKEN`
+- **Bitable app_token:** `HBphba9bJalxLVsthJhjKTcxpCb` → `LARK_BASE_APP_TOKEN`
 
-1. เปิด https://open.larksuite.com/app → App ของ Vizzel Sales
-2. **Events & Callbacks**
-3. **Request URL:** `https://staging-sale-api.vizzeltrack.com/api/v1/webhook/lark`
-4. **Verification Token:** ต้องตรงกับค่าใน server:
-   ```bash
-   grep LARK_EVENT_VERIFY_TOKEN /opt/sale-app/backend/deploy/.env.staging
-   ```
-5. Subscribe: **Bitable — Record changed** (`drive.file.bitable_record_changed_v1` หรือ v2)
-6. กด **Save** → Lark ส่ง `url_verification` — server ตอบ `{"challenge":"..."}` อัตโนมัติ
+## Sync architecture (staging)
 
-### ทดบน server (ไม่ต้องรอ Console)
+| ทิศทาง | วิธี | สถานะ |
+|--------|------|--------|
+| App → Lark | สร้างโครงการ/นัดหมาย | ✅ |
+| Lark → App | **`LARK_PULL_ON_VIEW=true`** เปิดโครงการในแอป | ✅ (primary) |
+| Lark → App | Webhook push (`drive.file.bitable_record_changed_v1`) | 🟡 handler OK; Lark ยังไม่ push จาก UI |
+
+## Console (VS-016)
+
+1. **Events & Callbacks** → Request URL: `https://staging-sale-api.vizzeltrack.com/api/v1/webhook/lark`
+2. **Verification Token** = `LARK_EVENT_VERIFY_TOKEN` ใน `.env.staging` (copy จาก Console → server)
+3. Subscribe event: **`drive.file.bitable_record_changed_v1`** (Tenant token)
+4. **Encrypt Key:** ปิด (หรือใส่ `LARK_ENCRYPT_KEY` บน server)
+5. **Add Application** (ไม่ใช่ Share user): `⋯ → More → Add Application` → **Vizzel Sales Dashboard** → **Manage**
+6. **Permissions (publish แล้ว):** `wiki:node:read`, `docs:event:subscribe` หรือ `drive:drive`, `bitable:app`
+
+## หลัง deploy / เปลี่ยน permission
 
 ```bash
-/opt/sale-app/scripts/staging-smoke.sh
-# PASS Lark url_verification + bitable_record_changed mock
+/opt/sale-app/scripts/lark-subscribe-crm.sh      # ต้องได้ subscribe OK
+/opt/sale-app/scripts/staging-smoke.sh           # 7/7 PASS
+# หรือรวม:
+/opt/sale-app/backend/deploy/scripts/post-deploy-staging.sh
 ```
 
-### ทด manual
+## ทด Lark → App (pull — ใช้อยู่)
+
+1. แก้ cell ใน CRM (หมายเหตุ / รายละเอียด)
+2. เปิดโครงการใน https://staging-sale.vizzeltrack.com/
+3. Log: `[LARK] inbound applied project=...`
+
+## ทด webhook push (optional / D)
+
+แก้ CRM แล้วดู log — ต้องมี **`ua="Go-http-client/1.1"`** ไม่ใช่ `curl`:
 
 ```bash
-TOKEN=$(grep LARK_EVENT_VERIFY_TOKEN /opt/sale-app/backend/deploy/.env.staging | cut -d= -f2)
-curl -sS -X POST https://staging-sale-api.vizzeltrack.com/api/v1/webhook/lark \
-  -H 'Content-Type: application/json' \
-  -d "{\"type\":\"url_verification\",\"challenge\":\"ping\",\"token\":\"$TOKEN\"}"
+docker logs sales-api-staging -f 2>&1 | grep LARK
 ```
 
-## Production (หลัง go-live)
+## Production
 
 - URL: `https://sale-api.vizzeltrack.com/api/v1/webhook/lark`
-- Token: จาก `deploy/.env.production` (**คนละค่ากับ staging** — สร้างโดย `prod-prep.sh`)
-
-## Encrypt Key (optional)
-
-ถ้าเปิด Encrypt ใน Lark Console → copy **Encrypt Key** ใส่ `LARK_ENCRYPT_KEY` ใน env แล้ว recreate `sales-api`
-
-## Checklist VS-016
-
-- [ ] Request URL ถูกต้อง (staging หรือ prod)
-- [ ] Verification Token = `LARK_EVENT_VERIFY_TOKEN` บน server
-- [ ] Subscribe Bitable record changed
-- [ ] กด Save สำเร็จ (ไม่มี error ใน Console)
-- [ ] แก้ row ใน Lark Bitable → ดู log `docker logs sales-api-staging --tail 50`
+- Token แยกจาก staging (`prod-prep.sh` สร้างใหม่)
+- Subscribe + Add Application ทำซ้ำบน prod Base
