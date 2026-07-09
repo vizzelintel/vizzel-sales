@@ -244,7 +244,18 @@ func UpdateCompanyDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "อัปเดตบริษัทสำเร็จ"})
 }
 
+// GetCompanies lists all companies. invite_code is the secret used by
+// /register to join a company, so only admins receive it — dealers/support
+// see everything else about a company.
 func GetCompanies(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(string)
+
+	var callerRole string
+	_ = config.DB.QueryRow(context.Background(),
+		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, uid,
+	).Scan(&callerRole)
+
 	rows, err := config.DB.Query(context.Background(),
 		`SELECT id, name, COALESCE(tax_id,''), COALESCE(invite_code,''), created_at
 		 FROM companies ORDER BY name ASC`,
@@ -261,6 +272,9 @@ func GetCompanies(c *gin.Context) {
 		if err := rows.Scan(&co.ID, &co.Name, &co.TaxID, &co.InviteCode, &co.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse companies"})
 			return
+		}
+		if callerRole != "admin" {
+			co.InviteCode = ""
 		}
 		companies = append(companies, co)
 	}

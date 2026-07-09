@@ -34,6 +34,13 @@ type projectAppointment struct {
 
 func GetProjectAppointments(c *gin.Context) {
 	projectID := c.Param("id")
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	if !userCanAccessProject(context.Background(), userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์เข้าถึงนัดหมายของโครงการนี้"})
+		return
+	}
 
 	list, err := listProjectAppointments(context.Background(), projectID)
 	if err != nil {
@@ -108,6 +115,13 @@ func CreateProjectAppointment(c *gin.Context) {
 		return
 	}
 
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+	if !userCanAccessProject(context.Background(), userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์นัดหมายในโครงการนี้"})
+		return
+	}
+
 	var req struct {
 		ScheduledAt string `json:"scheduled_at" binding:"required"`
 		Note        string `json:"note"`
@@ -173,9 +187,6 @@ func CreateProjectAppointment(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	userIDStr, _ := userID.(string)
-
 	calNote := appointmentCalendarNote(strings.TrimSpace(req.Note), meetSetup, meetLink)
 	calendarEventID, calendarOK, calendarMessage, calendarMailOK := scheduleAppointmentNotifications(
 		c, projectID, label, agencyName, contactPerson, contactPhone, calNote, startAt, meetLink,
@@ -199,16 +210,16 @@ func CreateProjectAppointment(c *gin.Context) {
 	syncLatestPresentLegacyColumns(ctx, projectID)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":               "บันทึกนัดหมายสำเร็จ",
-		"id":                    apptID,
-		"type":                  apptType,
-		"scheduled_at":          req.ScheduledAt,
-		"calendar_event_id":     calendarEventID,
-		"calendar_ok":           calendarOK || calendarMailOK,
-		"calendar_message":      calendarMessage,
-		"calendar_mail_ok":      calendarMailOK,
-		"meet_setup":          meetSetup,
-		"meet_link":           meetLink,
+		"message":           "บันทึกนัดหมายสำเร็จ",
+		"id":                apptID,
+		"type":              apptType,
+		"scheduled_at":      req.ScheduledAt,
+		"calendar_event_id": calendarEventID,
+		"calendar_ok":       calendarOK || calendarMailOK,
+		"calendar_message":  calendarMessage,
+		"calendar_mail_ok":  calendarMailOK,
+		"meet_setup":        meetSetup,
+		"meet_link":         meetLink,
 	})
 	go SyncProjectToLarkByID(projectID)
 }
@@ -235,6 +246,13 @@ func appointmentCalendarNote(note, meetSetup, meetLink string) string {
 func UpdateProjectAppointment(c *gin.Context) {
 	projectID := c.Param("id")
 	apptID := strings.TrimSpace(c.Param("apptId"))
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	if !userCanAccessProject(context.Background(), userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์แก้ไขนัดหมายของโครงการนี้"})
+		return
+	}
 
 	var req struct {
 		MeetLink string `json:"meet_link"`
@@ -287,6 +305,13 @@ func DeleteProjectAppointment(c *gin.Context) {
 	apptID := strings.TrimSpace(c.Param("apptId"))
 	if apptID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid appointment id"})
+		return
+	}
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	if !userCanAccessProject(context.Background(), userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์ลบนัดหมายของโครงการนี้"})
 		return
 	}
 
