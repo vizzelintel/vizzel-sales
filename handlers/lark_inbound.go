@@ -35,7 +35,10 @@ func shouldSkipLarkPush(projectID string) bool {
 
 var larkLabelToStatus = map[string]string{
 	"register":  "register",
-	"present":   "present",
+	// "present" is a legacy status that scanProject normalizes to "register" on
+	// read; map inbound Lark "present" labels straight to "register" so Lark sync
+	// can't reintroduce the legacy value (BUG-07).
+	"present":   "register",
 	"quotation": "quotation",
 	"tor":       "tor",
 	"contract":  "contract",

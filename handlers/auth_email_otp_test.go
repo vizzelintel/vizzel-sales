@@ -2,16 +2,19 @@ package handlers
 
 import "testing"
 
-// BUG-14: generateOTP picks each digit via int(randomByte) % 10. Since 256 is
-// not a multiple of 10, byte values map to digits 0-5 twenty-six times each
-// but digits 6-9 only twenty-five times each, biasing the OTP slightly
-// towards low digits. This test checks the mapping itself (deterministic over
-// all 256 byte values), rather than sampling crypto/rand, so it can't flake.
-// See BUG_REPORT.md BUG-14.
+// BUG-14: generateOTP originally picked each digit via int(randomByte) % 10.
+// Since 256 is not a multiple of 10, byte values map to digits 0-5 twenty-six
+// times each but digits 6-9 only twenty-five times each, biasing the OTP
+// slightly towards low digits. The fix uses rejection sampling: bytes >= 250
+// are rejected so only the range [0,250) — an exact multiple of 10 — is mapped
+// with `%10`, making the digit distribution uniform. This test checks that
+// accepted-range mapping (deterministic), rather than sampling crypto/rand, so
+// it can't flake. See BUG_REPORT.md BUG-14.
 func TestGenerateOTPDigitMapping_IsUniformOverByteRange(t *testing.T) {
 	const digits = "0123456789"
+	const cutoff = 250 // generateOTP rejects bytes >= cutoff
 	var counts [10]int
-	for b := 0; b < 256; b++ {
+	for b := 0; b < cutoff; b++ {
 		d := digits[byte(b)%10]
 		counts[d-'0']++
 	}
@@ -26,9 +29,9 @@ func TestGenerateOTPDigitMapping_IsUniformOverByteRange(t *testing.T) {
 		}
 	}
 	if min != max {
-		t.Fatalf("digit mapping over 256 byte values is not uniform: counts=%v (min=%d, max=%d) — "+
-			"256 %% 10 != 0, so `int(randomByte) %% 10` favors digits 0-5 over 6-9; use rejection "+
-			"sampling or crypto/rand.Int to remove the bias (BUG-14)", counts, min, max)
+		t.Fatalf("digit mapping over accepted byte range [0,250) is not uniform: counts=%v (min=%d, max=%d) — "+
+			"generateOTP must reject bytes >= 250 and map only the unbiased range with `%%10` "+
+			"(rejection sampling) to remove the bias (BUG-14)", counts, min, max)
 	}
 }
 

@@ -93,7 +93,12 @@ func decryptLarkPayload(encryptKey, cipherText string) ([]byte, error) {
 	mode.CryptBlocks(plain, data)
 	n := int(plain[len(plain)-1])
 	if n <= 0 || n > aes.BlockSize || n > len(plain) {
-		return plain, nil
+		return nil, fmt.Errorf("invalid PKCS7 padding")
+	}
+	for _, b := range plain[len(plain)-n:] {
+		if int(b) != n {
+			return nil, fmt.Errorf("invalid PKCS7 padding")
+		}
 	}
 	return plain[:len(plain)-n], nil
 }

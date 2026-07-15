@@ -15,7 +15,9 @@ func TestLarkFieldText(t *testing.T) {
 }
 
 func TestStatusFromLarkLabel(t *testing.T) {
-	if got := statusFromLarkLabel("Present"); got != "present" {
+	// "present" is a legacy status normalized to "register" (BUG-07), so the
+	// Lark "Present" label now resolves to "register".
+	if got := statusFromLarkLabel("Present"); got != "register" {
 		t.Fatalf("got %q", got)
 	}
 	if got := statusFromLarkLabel("Quotation"); got != "quotation" {
@@ -34,7 +36,7 @@ func TestParseLarkFieldsToPatch(t *testing.T) {
 		"รายละเอียดเพิ่มเติม": "บันทึกจาก Lark",
 	}
 	p := parseLarkFieldsToPatch(fields)
-	if p.AgencyName != "โรงพยาบาลทดสอบ" || p.Status != "present" || p.ProjectID != "abc-123" {
+	if p.AgencyName != "โรงพยาบาลทดสอบ" || p.Status != "register" || p.ProjectID != "abc-123" {
 		t.Fatalf("%+v", p)
 	}
 	if !p.SetDetailNote || p.DetailNote != "บันทึกจาก Lark" {

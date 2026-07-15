@@ -39,13 +39,22 @@ func hashOTP(email, otp string) string {
 
 func generateOTP() (string, error) {
 	const digits = "0123456789"
+	// Rejection sampling: 256 is not a multiple of 10, so mapping every byte
+	// with `%10` biases digits 0-5 over 6-9 (BUG-14). Reject bytes >= 250 so the
+	// remaining range [0,250) maps uniformly onto the 10 digits.
+	const cutoff = 250
 	buf := make([]byte, 6)
-	rnd := make([]byte, 6)
-	if _, err := rand.Read(rnd); err != nil {
-		return "", err
-	}
+	one := make([]byte, 1)
 	for i := range buf {
-		buf[i] = digits[int(rnd[i])%10]
+		for {
+			if _, err := rand.Read(one); err != nil {
+				return "", err
+			}
+			if one[0] < cutoff {
+				buf[i] = digits[one[0]%10]
+				break
+			}
+		}
 	}
 	return string(buf), nil
 }
