@@ -120,6 +120,11 @@ func CreateDocument(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
+	if !userCanAccessProject(context.Background(), userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์แนบเอกสารในโครงการนี้"})
+		return
+	}
+
 	var uploaderRole string
 	_ = config.DB.QueryRow(context.Background(),
 		`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, userIDStr,
@@ -358,6 +363,11 @@ func DeleteDocument(c *gin.Context) {
 		return
 	}
 
+	if !userCanAccessProject(ctx, userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์ลบเอกสารของโครงการนี้"})
+		return
+	}
+
 	// Delete stored file (local or legacy Supabase URL)
 	deleteStoredFile(fileURL)
 
@@ -493,6 +503,13 @@ func deleteLegacySupabaseObject(fileURL string) {
 // GetProjectDocuments lists all documents for a project, oldest first (sequential display).
 func GetProjectDocuments(c *gin.Context) {
 	projectID := c.Param("id")
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	if !userCanAccessProject(context.Background(), userIDStr, projectID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "ไม่มีสิทธิ์เข้าถึงเอกสารของโครงการนี้"})
+		return
+	}
 
 	rows, err := config.DB.Query(context.Background(),
 		`SELECT id, project_id::text, COALESCE(doc_type,''), file_url,

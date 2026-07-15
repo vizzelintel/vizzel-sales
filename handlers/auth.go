@@ -27,7 +27,7 @@ type LineProfile struct {
 }
 
 type RegisterRequest struct {
-	LineID      string `json:"line_id"      binding:"required"`
+	AccessToken string `json:"access_token"  binding:"required"`
 	DisplayName string `json:"display_name"`
 	PictureURL  string `json:"picture_url"`
 	FirstName   string `json:"first_name"   binding:"required"`
@@ -139,6 +139,11 @@ func ValidateInviteCode(c *gin.Context) {
 }
 
 // Register — POST /api/v1/auth/register (no auth required)
+// The caller must prove ownership of the LINE account being registered by
+// presenting a valid LINE access_token (verified via fetchLineProfile), the
+// same way LineLogin does. The LINE id is always taken from that verified
+// profile — never from client-supplied input — so an invite_code alone
+// cannot be used to bind an account to someone else's LINE id.
 func Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -146,10 +151,17 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	profile, err := fetchLineProfile(req.AccessToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid LINE token: " + err.Error()})
+		return
+	}
+	lineID := profile.UserID
+
 	// Prevent duplicate registration
 	var existingID string
 	dupErr := config.DB.QueryRow(context.Background(),
-		`SELECT id::text FROM users WHERE line_id = $1`, req.LineID,
+		`SELECT id::text FROM users WHERE line_id = $1`, lineID,
 	).Scan(&existingID)
 	if dupErr == nil {
 		// User already registered — just issue a new token
@@ -157,7 +169,7 @@ func Register(c *gin.Context) {
 		_ = config.DB.QueryRow(context.Background(),
 			`SELECT COALESCE(role,'') FROM users WHERE id = $1::uuid`, existingID,
 		).Scan(&role)
-		tokenStr, err := issueJWT(existingID, req.LineID, req.DisplayName, role)
+		tokenStr, err := issueJWT(existingID, lineID, profile.DisplayName, role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
 			return
@@ -168,7 +180,7 @@ func Register(c *gin.Context) {
 
 	// Validate invite code
 	var companyID string
-	err := config.DB.QueryRow(context.Background(),
+	err = config.DB.QueryRow(context.Background(),
 		`SELECT id::text FROM companies WHERE UPPER(TRIM(invite_code)) = UPPER(TRIM($1))`, req.InviteCode,
 	).Scan(&companyID)
 	if err != nil {
@@ -189,7 +201,7 @@ func Register(c *gin.Context) {
 		 VALUES ($1, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
 		         'dealer', $8::uuid, $9)
 		 RETURNING id::text`,
-		req.LineID, fullName, req.FirstName, req.LastName,
+		lineID, fullName, req.FirstName, req.LastName,
 		req.Phone, req.Email, req.Region,
 		companyID, req.InviteCode,
 	).Scan(&userID)
@@ -202,7 +214,7 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	tokenStr, err := issueJWT(userID, req.LineID, fullName, "dealer")
+	tokenStr, err := issueJWT(userID, lineID, fullName, "dealer")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
 		return
@@ -211,7 +223,11 @@ func Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"token": tokenStr})
 }
 
-func fetchLineProfile(accessToken string) (*LineProfile, error) {
+// fetchLineProfile is a var (not a plain func) so tests can substitute a
+// fake LINE API without making real network calls.
+var fetchLineProfile = fetchLineProfileLive
+
+func fetchLineProfileLive(accessToken string) (*LineProfile, error) {
 	req, _ := http.NewRequest("GET", "https://api.line.me/v2/profile", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 

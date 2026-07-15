@@ -4,7 +4,31 @@
       "Bash(go build *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Read(//Users/sotang/project/**)",
+      "Bash(docker info *)",
+      "Bash(node --test test/)",
+      "Bash(node --test)",
+      "Read(//usr/local/go/**)",
+      "Read(//opt/homebrew/opt/go/**)",
+      "Bash(find / -maxdepth 4 -iname \"go\" -type f)",
+      "Bash(brew list *)",
+      "Bash(asdf list *)",
+      "Bash(mise list *)",
+      "Bash(brew install *)",
+      "Bash(go version *)",
+      "Bash(go test *)",
+      "Bash(export DATABASE_URL=\"postgres://vizzel:vizzel_dev@127.0.0.1:5433/vizzel_sales?sslmode=disable\")",
+      "Bash(go vet *)",
+      "Bash(gofmt *)",
+      "Bash(cd *)",
+      "Bash(export JWT_SECRET=\"dev-jwt-secret-change-me\")",
+      "Bash(export LINE_CHANNEL_SECRET=\"dev-line-secret\")",
+      "Bash(export FILE_STORAGE_DRIVER=\"local\")",
+      "Bash(export FILE_STORAGE_PATH=\"/tmp/vizzel_pg_test_run/docs\")",
+      "Bash(export PORT=\"8080\")",
+      "Bash(node scripts/mint-dev-jwt.js aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa line-dealer-a dealer dev-jwt-secret-change-me)",
+      "Bash(curl -s http://localhost:8080/api/v1/companies -H 'Authorization: Bearer __TRACKED_VAR__')"
     ]
   }
 }
